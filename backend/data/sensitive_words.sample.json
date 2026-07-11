@@ -1,0 +1,26 @@
+[
+  {
+    "word": "绝对有效",
+    "level": "critical",
+    "category": "medical_promise",
+    "enabled": true,
+    "match_type": "contains",
+    "description": "绝对化疗效承诺"
+  },
+  {
+    "word": "保证赚钱",
+    "level": "high",
+    "category": "income_promise",
+    "enabled": true,
+    "match_type": "contains",
+    "description": "收益保证"
+  },
+  {
+    "word": "免费",
+    "level": "medium",
+    "category": "price",
+    "enabled": true,
+    "match_type": "contains",
+    "description": "价格敏感词"
+  }
+]
