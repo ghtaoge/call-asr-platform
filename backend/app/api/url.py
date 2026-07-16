@@ -19,10 +19,14 @@ async def create_url_session(request: UrlAnalysisRequest) -> OfflineAnalysisResp
     if not request.audio_url.startswith(("http://", "https://")):
         raise HTTPException(status_code=400, detail="音频 URL 格式不合法")
 
-    # Download audio from remote URL
+    # Download audio from remote URL with browser-like headers
+    download_headers = {
+        "Accept": "audio/*, application/octet-stream, */*",
+        "User-Agent": "CallASRPlatform/0.1 (Audio Downloader)",
+    }
     try:
-        async with httpx.AsyncClient(timeout=DOWNLOAD_TIMEOUT) as client:
-            response = await client.get(request.audio_url, follow_redirects=True)
+        async with httpx.AsyncClient(timeout=DOWNLOAD_TIMEOUT, follow_redirects=True) as client:
+            response = await client.get(request.audio_url, headers=download_headers)
             response.raise_for_status()
     except httpx.TimeoutException:
         raise HTTPException(status_code=504, detail="下载音频文件超时")
