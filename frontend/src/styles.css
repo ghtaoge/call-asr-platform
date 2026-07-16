@@ -74,6 +74,14 @@ select {
   background: #ffffff;
 }
 
+.urlInput {
+  width: 240px;
+  padding: 6px 12px;
+  border: 1px solid #b9c8d1;
+  border-radius: 6px;
+  font-size: 14px;
+}
+
 .fileButton input {
   display: none;
 }
