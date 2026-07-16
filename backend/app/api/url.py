@@ -20,13 +20,21 @@ async def create_url_session(request: UrlAnalysisRequest) -> OfflineAnalysisResp
         raise HTTPException(status_code=400, detail="音频 URL 格式不合法")
 
     # Download audio from remote URL with browser-like headers
+    # Some servers reject requests with non-browser User-Agent or unsupported
+    # Accept-Encoding (e.g. zstd), returning 406 Not Acceptable.
     download_headers = {
-        "Accept": "audio/*, application/octet-stream, */*",
-        "User-Agent": "CallASRPlatform/0.1 (Audio Downloader)",
+        "Accept": "*/*",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
     }
     try:
-        async with httpx.AsyncClient(timeout=DOWNLOAD_TIMEOUT, follow_redirects=True) as client:
-            response = await client.get(request.audio_url, headers=download_headers)
+        async with httpx.AsyncClient(
+            timeout=DOWNLOAD_TIMEOUT,
+            follow_redirects=True,
+            headers=download_headers,
+        ) as client:
+            response = await client.get(request.audio_url)
             response.raise_for_status()
     except httpx.TimeoutException:
         raise HTTPException(status_code=504, detail="下载音频文件超时")
