@@ -35,3 +35,16 @@ export function openRealtimeSession(
   ws.addEventListener("message", (message) => onEvent(JSON.parse(message.data)));
   return ws;
 }
+
+export async function analyzeByUrl(audioUrl: string): Promise<OfflineResult> {
+  const response = await fetch(`${API_BASE}/api/sessions/url`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ audio_url: audioUrl })
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: response.statusText }));
+    throw new Error(error.detail || `识别失败：${response.status}`);
+  }
+  return response.json();
+}
