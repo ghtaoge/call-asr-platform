@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import health, offline, realtime
+from app.api import health, offline, realtime, url
 
 
 def create_app() -> FastAPI:
@@ -16,6 +16,7 @@ def create_app() -> FastAPI:
     app.include_router(health.router)
     app.include_router(offline.router)
     app.include_router(realtime.router)
+    app.include_router(url.router)
     return app
 
 
