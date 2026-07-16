@@ -101,7 +101,11 @@ class AudioPreprocessor:
                 is_stereo=False, original=audio_bytes
             )
         finally:
-            os.unlink(tmp.name)
+            # Best-effort deletion; on Windows the file may still be locked
+            try:
+                os.unlink(tmp.name)
+            except OSError:
+                pass
 
     def _resample(self, arr: "np.ndarray", orig_sr: int, target_sr: int) -> "np.ndarray":
         """Simple linear interpolation resampling."""
