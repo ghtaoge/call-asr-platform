@@ -38,9 +38,11 @@ class AudioPreprocessor:
         import numpy as np
 
         # Write audio bytes to temp file (PyAV needs a file path)
+        # Use delete=False and manual cleanup to avoid Windows PermissionError
         tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
         tmp.write(audio_bytes)
-        tmp.close()
+        tmp.flush()
+        tmp.close()  # Close before opening with av to avoid Windows file lock
 
         try:
             container = av.open(tmp.name)
