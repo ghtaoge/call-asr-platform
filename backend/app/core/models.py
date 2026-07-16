@@ -85,3 +85,7 @@ class OfflineAnalysisResponse(BaseModel):
     segments: list[Segment]
     quality: QualityScore
     summary: CallSummary
+
+
+class UrlAnalysisRequest(BaseModel):
+    audio_url: str
