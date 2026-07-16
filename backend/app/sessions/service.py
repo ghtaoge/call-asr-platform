@@ -1,6 +1,6 @@
 from uuid import uuid4
 
-from app.asr.mock_provider import MockAsrProvider
+from app.asr.sensevoice_provider import SenseVoiceProvider
 from app.audio.preprocessor import AudioPreprocessor
 from app.compliance.rules import ComplianceRuleEngine
 from app.core.models import CallSummary, QualityScore, Segment, Speaker
@@ -17,7 +17,7 @@ class SessionService:
         self._repository = repository
         self._sensitive_store = sensitive_store
         self._audio = AudioPreprocessor()
-        self._asr = MockAsrProvider()
+        self._asr = SenseVoiceProvider()
         self._emotion = RuleEmotionProvider()
         self._translation = LocalTranslationProvider()
         self._compliance = ComplianceRuleEngine()
@@ -35,10 +35,24 @@ class SessionService:
         session_id = session_id or f"call_{uuid4().hex[:12]}"
         await self._repository.init()
         await self._repository.create_session(session_id, mode=mode)
-        processed = self._audio.process(audio)
-        segments = self._asr.transcribe(processed.audio, session_id=session_id, speaker=speaker)
-        enriched = self.enrich_segments(segments, target_language)
-        quality = self._quality.score(enriched, processed.silence_ratio, processed.noise_level)
+
+        # Split stereo audio into left (sales) and right (customer) channels
+        channels = self._audio.split_channels(audio)
+
+        all_segments: list[Segment] = []
+
+        if channels.is_stereo:
+            # Dual-channel: transcribe left as sales, right as customer
+            left_segments = self._asr.transcribe(channels.left, session_id=session_id, speaker=Speaker.sales)
+            right_segments = self._asr.transcribe(channels.right, session_id=session_id, speaker=Speaker.customer)
+            all_segments = left_segments + right_segments
+        else:
+            # Mono: transcribe with the provided speaker
+            processed = self._audio.process(audio)
+            all_segments = self._asr.transcribe(processed.audio, session_id=session_id, speaker=speaker)
+
+        enriched = self.enrich_segments(all_segments, target_language)
+        quality = self._quality.score(enriched, 0.1, "medium")
         summary = self._summary.generate(enriched)
         await self._repository.save_segments(session_id, enriched)
         await self._repository.save_quality(session_id, quality)
