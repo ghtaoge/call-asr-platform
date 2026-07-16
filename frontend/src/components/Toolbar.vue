@@ -2,7 +2,7 @@
 import { Upload, Radio, Link } from "lucide-vue-next";
 import type { Speaker } from "../types";
 
-const props = defineProps<{
+defineProps<{
   status: string;
   speaker: Speaker;
   audioUrl: string;
