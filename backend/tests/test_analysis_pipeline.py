@@ -40,8 +40,12 @@ def test_pipeline_maps_second_channel_to_sales_and_first_to_customer():
             return [segment(f"{speaker.value}-1", speaker, 0, 1000, "您好。")]
 
     class Emotion:
-        def analyze(self, audio, start, end):
-            return EmotionResult(label="neutral", confidence=0.8, score=0)
+        def __init__(self):
+            self.calls = []
+
+        def analyze_many(self, requests):
+            self.calls.append(requests)
+            return [EmotionResult(label="neutral", confidence=0.8, score=0) for _ in requests]
 
     class Sensitive:
         def scan(self, *args):
@@ -60,7 +64,12 @@ def test_pipeline_maps_second_channel_to_sales_and_first_to_customer():
             )
 
     asr = Asr()
-    pipeline = AnalysisPipeline(Audio(), asr, Emotion(), Sensitive(), Compliance(), Quality())
+    emotion = Emotion()
+    pipeline = AnalysisPipeline(Audio(), asr, emotion, Sensitive(), Compliance(), Quality())
     pipeline.run(b"audio", "call_1", lambda stage, progress: None)
 
     assert asr.calls == [(b"channel-2", Speaker.sales), (b"channel-1", Speaker.customer)]
+    assert emotion.calls == [[
+        (b"channel-1", 0, 1000),
+        (b"channel-2", 0, 1000),
+    ]]

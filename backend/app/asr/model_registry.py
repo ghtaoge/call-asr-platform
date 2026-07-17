@@ -15,15 +15,14 @@ class ModelRegistry:
         if self._sensevoice is None:
             with self._lock:
                 if self._sensevoice is None:
-                    # SenseVoice 自身会输出标点和富文本标签。这里仅加载 VAD，不能再接
-                    # CT-Punc，否则情绪、语言等标签可能被拆成页面上可见的英文碎片。
-                    # 15 秒上限还能避免一整条声道只生成一个过长的“逐句”片段。
+                    # Paraformer 面向中文转写，并原生输出词级时间戳；CT-Punc 将词级
+                    # 时间戳整理成句级区间。15 秒 VAD 上限避免超长语句影响准确率。
                     self._sensevoice = self._create(
-                        model="iic/SenseVoiceSmall",
+                        model="paraformer-zh",
                         vad_model="fsmn-vad",
+                        punc_model="ct-punc",
                         vad_kwargs={"max_single_segment_time": 15_000},
                         device=self.device,
-                        trust_remote_code=True,
                         disable_update=True,
                     )
         return self._sensevoice
@@ -33,7 +32,7 @@ class ModelRegistry:
             with self._lock:
                 if self._emotion is None:
                     self._emotion = self._create(
-                        model="iic/emotion2vec_plus_large",
+                        model="iic/emotion2vec_plus_base",
                         device=self.device,
                         disable_update=True,
                     )

@@ -1,3 +1,5 @@
+import asyncio
+
 from app.core.models import CallSummary, EmotionResult, QualityScore, Segment, Speaker
 from app.jobs.manager import JobManager
 from app.jobs.models import JobStage, JobStatus, SummaryStatus
@@ -44,6 +46,17 @@ class FailingSummary:
         raise SummaryError("summary_timeout", "摘要生成超时")
 
 
+class BlockingSummary:
+    def __init__(self):
+        self.started = asyncio.Event()
+        self.release = asyncio.Event()
+
+    async def generate(self, segments):
+        self.started.set()
+        await self.release.wait()
+        return CallSummary(overview="摘要稍后完成")
+
+
 class UnusedDownloader:
     def download(self, url, destination):
         raise AssertionError("not used")
@@ -84,4 +97,21 @@ async def test_summary_failure_does_not_fail_local_analysis(tmp_path):
     assert status.status == JobStatus.completed
     assert status.summary_status == SummaryStatus.failed
     assert (await manager.get_result(job.job_id)).segments
+    await manager.close()
+
+
+async def test_local_result_is_available_while_summary_is_still_running(tmp_path):
+    summary = BlockingSummary()
+    manager, jobs = await build_manager(tmp_path, summary)
+    job = await manager.create_upload(b"audio", "audio/wav")
+
+    await asyncio.wait_for(summary.started.wait(), timeout=2)
+    status = await jobs.require(job.job_id)
+    assert status.status == JobStatus.completed
+    assert status.summary_status == SummaryStatus.running
+    assert (await manager.get_result(job.job_id)).segments
+
+    summary.release.set()
+    await manager.wait(job.job_id)
+    assert (await jobs.require(job.job_id)).summary_status == SummaryStatus.completed
     await manager.close()

@@ -4,7 +4,7 @@
 
 ## 主要能力
 
-- SenseVoice + FSMN-VAD + CT-Punc：中文语音识别、时间戳、分句和标点
+- Paraformer-zh + FSMN-VAD + CT-Punc：中文语音识别、原生时间戳、分句和标点
 - 双声道角色区分：左声道为销售，右声道为客户
 - Emotion2Vec：逐时间段声学情绪分析，分别显示销售和客户曲线
 - 敏感词与合规规则：`low`、`medium`、`high`、`critical` 四级标记
@@ -32,7 +32,7 @@ python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
 
 在 `backend/.env` 中设置 `DEEPSEEK_API_KEY` 后才会生成智能摘要。没有 Key 时，本地识别、情绪、敏感词和质检仍会正常完成，摘要区会显示可重试状态。
 
-SenseVoice 和 Emotion2Vec 在首次分析时按需加载，第一次运行会下载模型并耗时较长。`CALL_ASR_PREFERRED_DEVICE=auto` 会优先使用 CUDA，否则使用 CPU。
+Paraformer 和 Emotion2Vec 在首次分析时按需加载，第一次运行会下载模型并耗时较长。`CALL_ASR_PREFERRED_DEVICE=auto` 会优先使用 CUDA，否则使用 CPU。
 
 ## 启动前端
 

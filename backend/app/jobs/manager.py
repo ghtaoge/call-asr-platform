@@ -164,9 +164,12 @@ class JobManager:
             local_result = await loop.run_in_executor(self.executor, run_pipeline)
             await self.sessions.save_segments(record.session_id, local_result.segments)
             await self.sessions.save_quality(record.session_id, local_result.quality)
-            await self._generate_summary(job_id, record.session_id, local_result.segments, initial=True)
+            # 本地分析完成后立即开放转写结果；DeepSeek 摘要继续在同一后台任务中生成。
+            # 前端会根据 summary_status=running 保持轮询，不需要用户等待摘要才能看文本。
+            await self.jobs.set_summary_status(job_id, SummaryStatus.running)
             await self.jobs.complete(job_id)
             await self.sessions.set_status(record.session_id, "completed")
+            await self._generate_summary(job_id, record.session_id, local_result.segments, initial=False)
         except UnsupportedChannelLayout as exc:
             await self.jobs.fail(job_id, "unsupported_channel_layout", str(exc))
         except AnalysisPipelineError as exc:

@@ -11,7 +11,7 @@ from app.core.models import Segment, Speaker
 
 
 class SenseVoiceProvider:
-    """ASR provider using Alibaba SenseVoice model via funasr."""
+    """Chinese ASR provider using Alibaba FunASR with timestamp fallbacks."""
 
     def __init__(
         self,
@@ -29,16 +29,16 @@ class SenseVoiceProvider:
 
             warnings.filterwarnings("ignore", message="trust_remote_code")
             self._model = AutoModel(
-                model="iic/SenseVoiceSmall",
+                model="paraformer-zh",
                 vad_model="fsmn-vad",
+                punc_model="ct-punc",
                 vad_kwargs={"max_single_segment_time": 15_000},
-                trust_remote_code=True,
                 disable_update=True,
             )
         return self._model
 
     def transcribe(self, audio: bytes, session_id: str, speaker: Speaker = Speaker.unknown) -> list[Segment]:
-        # Convert audio bytes to a standard WAV file that SenseVoice/funasr can read
+        # Convert audio bytes to a standard WAV file that FunASR can read.
         wav_path = self._convert_to_wav(audio)
 
         try:
@@ -56,16 +56,22 @@ class SenseVoiceProvider:
         speaker: Speaker = Speaker.unknown,
     ) -> list[Segment]:
         model = self._get_model()
-        # FunASR 的 SenseVoice 聚合结果不一定携带句级时间戳，因此先单独运行
-        # 同一模型实例里的 FSMN-VAD，保留每段真实语音的起止时间。
-        vad_intervals = self._vad_intervals(model, path)
         result = model.generate(
             input=path,
-            language="zh",
             use_itn=True,
+            sentence_timestamp=True,
             merge_vad=False,
             batch_size_s=60,
+            disable_pbar=True,
         )
+        if self._has_native_timing(result):
+            native_segments = self._parse_result(
+                result, session_id, Speaker(speaker), self._duration_ms(path)
+            )
+            if native_segments:
+                return self._merge_timed_fragments(native_segments)
+        # 只有旧模型没有原生时间戳时才额外运行 VAD，避免 Paraformer 重复计算。
+        vad_intervals = self._vad_intervals(model, path)
         raw_text = " ".join(
             str(item.get("text", "")) for item in result if isinstance(item, dict)
         )
@@ -79,6 +85,78 @@ class SenseVoiceProvider:
             if segments:
                 return segments
         return self._parse_result(result, session_id, Speaker(speaker), self._duration_ms(path))
+
+    @staticmethod
+    def _has_native_timing(result: Any) -> bool:
+        """判断 FunASR 结果中是否包含可直接使用的时间戳。"""
+        if not isinstance(result, list):
+            return False
+        for item in result:
+            if not isinstance(item, dict):
+                continue
+            structured = item.get("sentence_info") or item.get("sentences")
+            if isinstance(structured, list) and structured:
+                return True
+            if isinstance(item.get("timestamp"), list) and item["timestamp"]:
+                return True
+        return False
+
+    @staticmethod
+    def _merge_timed_fragments(segments: list[Segment]) -> list[Segment]:
+        """把标点模型产生的逗号碎片合并为适合阅读的完整句子。
+
+        合并只发生在同一声道内，并保留第一段开始时间和最后一段结束时间。
+        句末标点、1.2 秒以上停顿、36 字上限或 15 秒时长都会结束当前句，
+        因此不会为了减少行数而形成跨越很长通话区间的大段文字。
+        """
+        if not segments:
+            return []
+        merged: list[Segment] = []
+        text = ""
+        start_ms = 0
+        end_ms = 0
+        confidence = 1.0
+        speaker = segments[0].speaker
+        session_id = segments[0].session_id
+
+        def flush() -> None:
+            nonlocal text, start_ms, end_ms, confidence
+            if not text:
+                return
+            merged.append(
+                Segment(
+                    id=f"{session_id}_{speaker.value}_{len(merged) + 1:04d}",
+                    session_id=session_id,
+                    speaker=speaker,
+                    start_ms=start_ms,
+                    end_ms=end_ms,
+                    text=text,
+                    confidence=confidence,
+                    is_final=True,
+                )
+            )
+            text = ""
+            confidence = 1.0
+
+        for segment in segments:
+            gap_ms = segment.start_ms - end_ms if text else 0
+            would_be_too_long = bool(text) and (
+                len(text) + len(segment.text) > 36
+                or segment.end_ms - start_ms > 15_000
+            )
+            if text and (gap_ms > 1_200 or would_be_too_long):
+                flush()
+            if not text:
+                start_ms = segment.start_ms
+                speaker = segment.speaker
+                session_id = segment.session_id
+            text += segment.text
+            end_ms = segment.end_ms
+            confidence = min(confidence, segment.confidence)
+            if re.search(r"[。！？!?；;]$", segment.text):
+                flush()
+        flush()
+        return merged
 
     @staticmethod
     def _vad_intervals(model: Any, path: str) -> list[list[int]]:
@@ -229,7 +307,7 @@ class SenseVoiceProvider:
                 continue
             fallback_text = fallback_text or str(item.get("text", ""))
             structured = item.get("sentence_info") or item.get("sentences")
-            if isinstance(structured, list):
+            if isinstance(structured, list) and structured:
                 sentence_items.extend(entry for entry in structured if isinstance(entry, dict))
             elif "start" in item and "end" in item:
                 sentence_items.append(item)
@@ -334,7 +412,7 @@ class SenseVoiceProvider:
         """Convert audio bytes to a standard WAV file using PyAV.
 
         PyAV handles most audio formats (MP3, WAV, OGG, etc.) and doesn't
-        require an external ffmpeg binary. This ensures SenseVoice can always
+        require an external ffmpeg binary. This ensures FunASR can always
         read the audio regardless of the source format.
         """
         import av
@@ -371,7 +449,7 @@ class SenseVoiceProvider:
 
             audio_arr = np.concatenate(samples)
 
-            # Resample to 16kHz (SenseVoice expects 16kHz)
+            # Resample to the 16 kHz input expected by the ASR model.
             target_sr = 16000
             if stream.sample_rate != target_sr:
                 audio_arr = self._resample(audio_arr, stream.sample_rate, target_sr)

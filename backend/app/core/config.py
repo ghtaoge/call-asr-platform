@@ -9,7 +9,7 @@ class Settings(BaseSettings):
     data_dir: Path = Path("data")
     database_path: Path = Path("data/call_asr.sqlite3")
     sensitive_words_path: Path = Path("data/sensitive_words.sample.json")
-    asr_provider: str = "sensevoice"
+    asr_provider: str = "paraformer"
     asr_model_size: str = "base"
     preferred_device: str = "auto"
     target_language: str = "en"

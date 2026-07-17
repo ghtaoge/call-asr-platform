@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, nextTick, watch } from "vue";
 import { Clock3, MessageSquareText } from "lucide-vue-next";
 import type { Segment, SensitiveHit, Speaker } from "../types";
 
@@ -43,6 +43,29 @@ const filtered = computed(() => {
     previous.compliance_hits.push(...segment.compliance_hits);
   }
   return merged;
+});
+
+const rowElements = new Map<string, HTMLElement>();
+const activeSegmentId = computed(() => {
+  // 在语句间静音或录音结尾继续保留最近一条已开始的语句，避免进度条移动后
+  // 转写区突然失去定位。列表按开始时间排序，因此最后一次命中即为当前语境。
+  let latestId: string | undefined;
+  for (const segment of filtered.value) {
+    if (segment.start_ms > props.activeTime) break;
+    latestId = segment.id;
+  }
+  return latestId;
+});
+
+function setSegmentRow(id: string, element: unknown) {
+  if (element instanceof HTMLElement) rowElements.set(id, element);
+  else rowElements.delete(id);
+}
+
+watch(activeSegmentId, async (id) => {
+  if (!id) return;
+  await nextTick();
+  rowElements.get(id)?.scrollIntoView({ behavior: "smooth", block: "nearest" });
 });
 
 function speakerName(speaker: Speaker) {
@@ -106,8 +129,9 @@ function highlighted(segment: Segment): Array<{ text: string; hit?: SensitiveHit
       <button
         v-for="segment in filtered"
         :key="segment.id"
+        :ref="(element) => setSegmentRow(segment.id, element)"
         type="button"
-        :class="['segmentRow', segment.speaker, { active: activeTime >= segment.start_ms && activeTime < segment.end_ms }]"
+        :class="['segmentRow', segment.speaker, { active: activeSegmentId === segment.id }]"
         @click="emit('seek', segment.start_ms)"
       >
         <span class="speakerBadge">{{ speakerName(segment.speaker) }}</span>
@@ -122,7 +146,7 @@ function highlighted(segment: Segment): Array<{ text: string; hit?: SensitiveHit
         </span>
         <span class="segmentAside">
           <span :class="['emotionTag', segment.emotion.label]">{{ emotionName(segment.emotion.label) }}</span>
-          <span class="timeTag"><Clock3 :size="13" /> {{ formatTime(segment.start_ms) }}</span>
+          <span class="timeTag"><Clock3 :size="13" /> {{ formatTime(segment.start_ms) }} - {{ formatTime(segment.end_ms) }}</span>
         </span>
       </button>
     </div>

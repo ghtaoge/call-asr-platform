@@ -37,6 +37,8 @@ VALENCE = {
     "angry": -1.0,
     "anxious": -0.8,
 }
+MAX_EMOTION_WINDOW_MS = 4_000
+EMOTION_BATCH_SIZE = 32
 
 
 class AcousticEmotionProvider:
@@ -51,30 +53,60 @@ class AcousticEmotionProvider:
         self._audio = audio or AudioPreprocessor()
 
     def analyze(self, wav_bytes: bytes, start_ms: int, end_ms: int) -> EmotionResult:
-        """在说话人的独立声道中分析一个 ASR 句段的情绪。
+        return self.analyze_many([(wav_bytes, start_ms, end_ms)])[0]
 
-        emotion2vec 接收音频文件而不是字节区间，所以这里只把目标句段写入临时 WAV。
-        当前流程只使用分类分数，不需要向量结果，因此关闭 embedding 提取，减少
-        不必要的计算和内存消耗。
+    def analyze_many(
+        self,
+        requests: list[tuple[bytes, int, int]],
+    ) -> list[EmotionResult]:
+        """批量分析 ASR 句段，并保持输出与输入顺序一致。
+
+        长句只截取中间四秒。情绪识别需要声学特征，但不需要把十几秒的完整句子
+        重复送入模型；居中窗口也能避开句首和句尾常见的短暂停顿。所有片段通过
+        一次 ``generate`` 调用提交，减少逐句调度开销。
         """
-        clip = self._audio.slice_wav(wav_bytes, start_ms, end_ms)
-        temporary = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
+        if not requests:
+            return []
+        temporary_paths: list[str] = []
         try:
-            temporary.write(clip)
-            temporary.close()
+            for wav_bytes, start_ms, end_ms in requests:
+                window_start, window_end = self._emotion_window(start_ms, end_ms)
+                clip = self._audio.slice_wav(wav_bytes, window_start, window_end)
+                temporary = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
+                try:
+                    temporary.write(clip)
+                finally:
+                    temporary.close()
+                temporary_paths.append(temporary.name)
             result = self._get_model().generate(
-                input=temporary.name,
+                input=temporary_paths,
                 granularity="utterance",
                 extract_embedding=False,
+                batch_size=EMOTION_BATCH_SIZE,
+                disable_pbar=True,
             )
         finally:
-            if not temporary.closed:
-                temporary.close()
-            try:
-                os.unlink(temporary.name)
-            except OSError:
-                pass
-        label, confidence = self._best_result(result)
+            for path in temporary_paths:
+                try:
+                    os.unlink(path)
+                except OSError:
+                    pass
+        if not isinstance(result, list) or len(result) != len(requests):
+            raise RuntimeError("emotion result count does not match input segments")
+        return [self._normalize_result(item) for item in result]
+
+    @staticmethod
+    def _emotion_window(start_ms: int, end_ms: int) -> tuple[int, int]:
+        duration = end_ms - start_ms
+        if duration <= MAX_EMOTION_WINDOW_MS:
+            return start_ms, end_ms
+        offset = (duration - MAX_EMOTION_WINDOW_MS) // 2
+        window_start = start_ms + offset
+        return window_start, window_start + MAX_EMOTION_WINDOW_MS
+
+    @classmethod
+    def _normalize_result(cls, item: Any) -> EmotionResult:
+        label, confidence = cls._best_result([item])
         # 低置信度或未映射的类别统一展示为平静，避免微弱的声学猜测在曲线上
         # 形成误导性的风险尖峰。
         if confidence < 0.35 or label not in VALENCE:

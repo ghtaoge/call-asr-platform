@@ -29,9 +29,41 @@ def test_default_loader_uses_vad_without_external_punctuation(monkeypatch):
 
     SenseVoiceProvider()._get_model()
 
+    assert options["model"] == "paraformer-zh"
     assert options["vad_model"] == "fsmn-vad"
     assert options["vad_kwargs"]["max_single_segment_time"] == 15_000
-    assert "punc_model" not in options
+    assert options["punc_model"] == "ct-punc"
+
+
+def test_transcribe_uses_native_timestamps_and_merges_comma_fragments():
+    class FakeParaformer:
+        vad_model = None
+
+        def __init__(self):
+            self.options = None
+
+        def generate(self, **kwargs):
+            self.options = kwargs
+            return [{
+                "text": "喂，您好。请问，需要什么？",
+                "sentence_info": [
+                    {"start": 100, "end": 300, "text": "喂，"},
+                    {"start": 320, "end": 900, "text": "您好。"},
+                    {"start": 1500, "end": 1900, "text": "请问，"},
+                    {"start": 1900, "end": 2800, "text": "需要什么？"},
+                ],
+            }]
+
+    model = FakeParaformer()
+    segments = SenseVoiceProvider(model=model).transcribe_file(
+        "missing.wav", "call_1", Speaker.customer
+    )
+
+    assert model.options["sentence_timestamp"] is True
+    assert [(item.start_ms, item.end_ms, item.text) for item in segments] == [
+        (100, 900, "喂，您好。"),
+        (1500, 2800, "请问，需要什么？"),
+    ]
 
 
 def test_sensevoice_returns_atomic_timestamped_segments():
@@ -53,6 +85,7 @@ def test_sensevoice_splits_punctuated_text_using_word_timestamps():
     provider = SenseVoiceProvider(model=FakeSenseVoice())
     result = [{
         "text": "<|zh|><|NEUTRAL|>您好。请问需要什么？",
+        "sentence_info": [],
         "timestamp": [
             [100, 220], [220, 380],
             [500, 620], [620, 740], [740, 860], [860, 980],

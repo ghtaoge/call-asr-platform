@@ -7,5 +7,7 @@ def test_registry_loads_each_model_once():
     assert registry.sensevoice() is registry.sensevoice()
     assert registry.emotion() is registry.emotion()
     assert len(calls) == 2
+    assert calls[0]["model"] == "paraformer-zh"
     assert calls[0]["vad_model"] == "fsmn-vad"
-    assert "punc_model" not in calls[0]
+    assert calls[0]["punc_model"] == "ct-punc"
+    assert calls[1]["model"] == "iic/emotion2vec_plus_base"

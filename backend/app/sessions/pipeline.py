@@ -83,14 +83,15 @@ class AnalysisPipeline:
 
         progress(JobStage.analyzing_emotion, 72)
         try:
-            # 按 ASR 句段逐段识别，前端才能绘制随通话时间变化的情绪曲线，
-            # 而不是每个角色整段录音只有一个情绪结果。
-            for segment in segments:
-                segment.emotion = self.emotion.analyze(
-                    channel_audio[segment.speaker],
-                    segment.start_ms,
-                    segment.end_ms,
-                )
+            # 一次批量提交全部句段，结果仍逐句回填，前端情绪曲线粒度不变。
+            emotion_results = self.emotion.analyze_many([
+                (channel_audio[segment.speaker], segment.start_ms, segment.end_ms)
+                for segment in segments
+            ])
+            if len(emotion_results) != len(segments):
+                raise RuntimeError("emotion result count does not match segments")
+            for segment, emotion in zip(segments, emotion_results, strict=True):
+                segment.emotion = emotion
         except Exception as exc:
             raise AnalysisPipelineError("emotion_failed", "通话情绪分析失败") from exc
 
