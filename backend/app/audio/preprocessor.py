@@ -54,8 +54,15 @@ class AudioPreprocessor:
                 left_samples = []
                 right_samples = []
                 for frame in container.decode(audio=0):
-                    # frame.to_ndarray returns shape (channels, samples)
                     arr = frame.to_ndarray()
+                    channel_count = len(frame.layout.channels)
+                    if not frame.format.is_planar:
+                        arr = arr.reshape(-1, channel_count).T
+                    if np.issubdtype(arr.dtype, np.integer):
+                        scale = max(abs(np.iinfo(arr.dtype).min), np.iinfo(arr.dtype).max)
+                        arr = arr.astype(np.float32) / scale
+                    else:
+                        arr = arr.astype(np.float32)
                     if arr.shape[0] == 2:
                         left_samples.append(arr[0])
                         right_samples.append(arr[1])
@@ -81,8 +88,8 @@ class AudioPreprocessor:
                     right_arr = self._resample(right_arr, stream.sample_rate, target_sr)
 
                 # Normalize to int16
-                left_wav = self._to_wav_bytes(left_arr.astype(np.float32), target_sr)
-                right_wav = self._to_wav_bytes(right_arr.astype(np.float32), target_sr)
+                left_wav = self._to_wav_bytes(left_arr, target_sr)
+                right_wav = self._to_wav_bytes(right_arr, target_sr)
 
                 return ChannelSplitResult(
                     left=left_wav, right=right_wav,
@@ -134,10 +141,10 @@ class AudioPreprocessor:
         # WAV header
         header = struct.pack(
             '<4sI4s4sIHHIIHH4sI',
-            'RIFF',
+            b'RIFF',
             36 + data_size,
-            'WAVE',
-            'fmt ',
+            b'WAVE',
+            b'fmt ',
             16,  # chunk size
             1,   # PCM format
             num_channels,
@@ -145,7 +152,7 @@ class AudioPreprocessor:
             byte_rate,
             block_align,
             bits_per_sample,
-            'data',
+            b'data',
             data_size,
         )
         return header + int_arr.tobytes()

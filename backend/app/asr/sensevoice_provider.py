@@ -81,6 +81,11 @@ class SenseVoiceProvider:
             samples = []
             for frame in container.decode(audio=0):
                 arr = frame.to_ndarray()
+                if np.issubdtype(arr.dtype, np.integer):
+                    scale = max(abs(np.iinfo(arr.dtype).min), np.iinfo(arr.dtype).max)
+                    arr = arr.astype(np.float32) / scale
+                else:
+                    arr = arr.astype(np.float32)
                 # Handle multi-channel: convert to mono by averaging
                 if arr.ndim == 2 and arr.shape[0] > 1:
                     arr = arr.mean(axis=0)
