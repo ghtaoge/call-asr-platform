@@ -18,8 +18,7 @@ class ModelRegistry:
                     self._sensevoice = self._create(
                         model="iic/SenseVoiceSmall",
                         vad_model="fsmn-vad",
-                        punc_model="ct-punc",
-                        vad_kwargs={"max_single_segment_time": 30_000},
+                        vad_kwargs={"max_single_segment_time": 15_000},
                         device=self.device,
                         trust_remote_code=True,
                         disable_update=True,

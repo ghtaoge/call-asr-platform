@@ -7,7 +7,11 @@ from app.emotion.acoustic_provider import AcousticEmotionProvider
 
 
 class FakeEmotionModel:
+    def __init__(self):
+        self.kwargs = None
+
     def generate(self, **kwargs):
+        self.kwargs = kwargs
         return [{"labels": ["生气/angry", "中立/neutral"], "scores": [0.8, 0.2]}]
 
 
@@ -23,7 +27,9 @@ def wav_bytes() -> bytes:
 
 
 def test_acoustic_emotion_normalizes_label_confidence_and_valence():
-    result = AcousticEmotionProvider(FakeEmotionModel()).analyze(wav_bytes(), 0, 1000)
+    model = FakeEmotionModel()
+    result = AcousticEmotionProvider(model).analyze(wav_bytes(), 0, 1000)
     assert result.label == "angry"
     assert result.confidence == 0.8
     assert result.score == -0.8
+    assert model.kwargs["extract_embedding"] is False

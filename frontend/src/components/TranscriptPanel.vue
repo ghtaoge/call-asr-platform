@@ -84,7 +84,7 @@ function highlighted(segment: Segment): Array<{ text: string; hit?: SensitiveHit
     <header class="panelHeader">
       <div>
         <h2><MessageSquareText :size="18" /> 通话内容</h2>
-        <p>共 {{ segments.length }} 个有效语句</p>
+        <p>共 {{ filtered.length }} 个{{ mode === 'sentence' ? '语句' : '合并段' }}</p>
       </div>
       <div class="panelControls">
         <div class="segmented" aria-label="显示方式">

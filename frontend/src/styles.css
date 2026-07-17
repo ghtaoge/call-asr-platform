@@ -114,6 +114,9 @@ mark { padding: 1px 2px; border-radius: 2px; color: inherit; }
 .riskContent small, .riskItem time { color: #7a8891; font-size: 11px; }
 .emptyCompact, .summaryLoading { margin-top: 12px; color: #70808a; font-size: 13px; }
 .deepseekBadge { padding: 3px 7px; color: #305eb1; background: #e9f0ff; border-radius: 4px; font-size: 11px; font-weight: 700; }
+.summaryHeaderActions { display: flex; align-items: center; gap: 7px; }
+.summaryRetryButton { height: 28px; padding: 0 8px; display: inline-flex; align-items: center; gap: 4px; color: #17634f; background: #fff; border: 1px solid #a9c8bd; border-radius: 4px; cursor: pointer; font-size: 12px; }
+.summaryRetryButton:hover { background: #eef8f5; border-color: #12735a; }
 .summaryBody { margin-top: 13px; }
 .overview { padding: 10px; color: #344650; background: #f2f7f5; border-left: 3px solid #12735a; line-height: 1.6; font-size: 13px; }
 .summaryGroup { margin-top: 13px; }
@@ -121,7 +124,6 @@ mark { padding: 1px 2px; border-radius: 2px; color: inherit; }
 .summaryGroup ul { margin: 6px 0 0; padding-left: 18px; line-height: 1.55; font-size: 13px; }
 .summaryGroup p { margin-top: 5px; color: #89959d; font-size: 12px; }
 .summaryFailure { margin-top: 12px; padding: 10px; color: #96372c; background: #fff3f1; font-size: 13px; }
-.summaryFailure button { margin-top: 8px; padding: 5px 8px; display: inline-flex; align-items: center; gap: 5px; border: 1px solid #d7a49e; border-radius: 4px; background: #fff; cursor: pointer; }
 .initialState { min-height: calc(100vh - 90px); display: flex; flex-direction: column; align-items: center; justify-content: center; color: #71808a; }
 .initialState svg { color: #12735a; }
 .initialState h2 { margin-top: 15px; color: #354650; font-size: 18px; }

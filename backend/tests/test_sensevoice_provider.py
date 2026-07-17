@@ -47,3 +47,34 @@ def test_sensevoice_splits_punctuated_text_using_word_timestamps():
         (100, 380, "您好。"),
         (500, 1220, "请问需要什么？"),
     ]
+
+
+def test_sensevoice_builds_clean_sentences_from_vad_intervals():
+    provider = SenseVoiceProvider(model=FakeSenseVoice())
+    raw_text = (
+        "< | zh | > < | HAPPY | > < | S pe ech | > < | withi tn | >喂，，您好。。"
+        "<|zh|><|NEUTRAL|><|Speech|><|withitn|>请问需要什么？？"
+    )
+
+    segments = provider._segments_from_vad_text(
+        raw_text,
+        [[100, 1100], [2000, 3600]],
+        "call_1",
+        Speaker.customer,
+    )
+
+    assert [(segment.start_ms, segment.end_ms, segment.text) for segment in segments] == [
+        (100, 1100, "喂，您好。"),
+        (2000, 3600, "请问需要什么？"),
+    ]
+    assert all("<" not in segment.text and "|" not in segment.text for segment in segments)
+
+
+def test_sensevoice_splits_long_utterances_at_natural_commas():
+    text = "客户昨天已经提交申请，我们今天需要核实物流状态，然后联系快递员确认情况，最后把处理结果及时回复客户。"
+
+    sentences = SenseVoiceProvider._split_sentences(text)
+
+    assert len(sentences) >= 2
+    assert "".join(sentences) == text
+    assert all(len(sentence) <= 36 for sentence in sentences)

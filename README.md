@@ -15,7 +15,7 @@
 
 ## 音频要求
 
-角色区分依赖双声道录音：左声道必须是销售，右声道必须是客户。单声道或多声道文件会返回 `unsupported_channel_layout`，不会猜测说话人身份。
+角色区分依赖 Gooeto 双声道录音：第一声道为客户，第二声道为销售。单声道或多声道文件会返回 `unsupported_channel_layout`，不会猜测说话人身份。
 
 支持 FFmpeg 能解码的 WAV、MP3、M4A、AAC、FLAC、OGG 等常见格式。单个文件默认不超过 50 MB。
 

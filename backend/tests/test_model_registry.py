@@ -7,3 +7,5 @@ def test_registry_loads_each_model_once():
     assert registry.sensevoice() is registry.sensevoice()
     assert registry.emotion() is registry.emotion()
     assert len(calls) == 2
+    assert calls[0]["vad_model"] == "fsmn-vad"
+    assert "punc_model" not in calls[0]

@@ -31,7 +31,7 @@ export function useAnalysisJob() {
   const isWorking = computed(() => job.value?.status === "queued" || job.value?.status === "running");
   const statusText = computed(() => {
     if (error.value) return error.value;
-    if (!job.value) return "支持 WAV、MP3、M4A 等常见格式，双声道左侧为销售、右侧为客户";
+    if (!job.value) return "支持 WAV、MP3、M4A 等常见格式，双声道第一声道为客户、第二声道为销售";
     return STAGE_LABELS[job.value.stage];
   });
 
@@ -81,10 +81,14 @@ export function useAnalysisJob() {
   async function retrySummary() {
     if (!job.value) return;
     error.value = "";
-    const status = await requestSummaryRetry(job.value.job_id);
-    job.value = status;
-    generation += 1;
-    await poll(status.job_id, generation);
+    try {
+      const status = await requestSummaryRetry(job.value.job_id);
+      job.value = status;
+      generation += 1;
+      await poll(status.job_id, generation);
+    } catch (cause) {
+      error.value = cause instanceof Error ? cause.message : "摘要重新生成失败";
+    }
   }
 
   onBeforeUnmount(stopPolling);

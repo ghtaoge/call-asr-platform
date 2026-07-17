@@ -56,7 +56,11 @@ class AcousticEmotionProvider:
         try:
             temporary.write(clip)
             temporary.close()
-            result = self._get_model().generate(input=temporary.name, granularity="utterance")
+            result = self._get_model().generate(
+                input=temporary.name,
+                granularity="utterance",
+                extract_embedding=False,
+            )
         finally:
             if not temporary.closed:
                 temporary.close()

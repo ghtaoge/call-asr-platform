@@ -56,14 +56,137 @@ class SenseVoiceProvider:
         session_id: str,
         speaker: Speaker = Speaker.unknown,
     ) -> list[Segment]:
-        result = self._get_model().generate(
+        model = self._get_model()
+        vad_intervals = self._vad_intervals(model, path)
+        result = model.generate(
             input=path,
             language="zh",
             use_itn=True,
             merge_vad=False,
             batch_size_s=60,
         )
+        raw_text = " ".join(
+            str(item.get("text", "")) for item in result if isinstance(item, dict)
+        )
+        if raw_text and vad_intervals:
+            segments = self._segments_from_vad_text(
+                raw_text,
+                vad_intervals,
+                session_id,
+                Speaker(speaker),
+            )
+            if segments:
+                return segments
         return self._parse_result(result, session_id, Speaker(speaker), self._duration_ms(path))
+
+    @staticmethod
+    def _vad_intervals(model: Any, path: str) -> list[list[int]]:
+        if not hasattr(model, "vad_model") or model.vad_model is None:
+            return []
+        try:
+            result = model.inference(
+                path,
+                model=model.vad_model,
+                kwargs=model.vad_kwargs,
+                disable_pbar=True,
+            )
+        except Exception:
+            return []
+        if not result or not isinstance(result, list) or not isinstance(result[0], dict):
+            return []
+        intervals = result[0].get("value", [])
+        return [
+            [int(interval[0]), int(interval[1])]
+            for interval in intervals
+            if isinstance(interval, (list, tuple))
+            and len(interval) >= 2
+            and interval[1] > interval[0]
+        ]
+
+    @classmethod
+    def _segments_from_vad_text(
+        cls,
+        raw_text: str,
+        intervals: list[list[int]],
+        session_id: str,
+        speaker: Speaker,
+    ) -> list[Segment]:
+        marker_block = re.compile(
+            r"(?:<\s*\|\s*[^<>]*?\s*\|\s*>\s*){2,}",
+            flags=re.IGNORECASE,
+        )
+        matches = list(marker_block.finditer(raw_text))
+        chunks: list[str] = []
+        if matches:
+            for index, match in enumerate(matches):
+                end = matches[index + 1].start() if index + 1 < len(matches) else len(raw_text)
+                chunks.append(cls._clean_text(raw_text[match.start():end]))
+        else:
+            chunks = [cls._clean_text(raw_text)]
+
+        pairs: list[tuple[str, int, int]] = []
+        nonempty_chunks = [chunk for chunk in chunks if chunk]
+        if len(nonempty_chunks) == len(intervals):
+            pairs = [
+                (chunk, interval[0], interval[1])
+                for chunk, interval in zip(nonempty_chunks, intervals, strict=True)
+            ]
+        elif nonempty_chunks and intervals:
+            pairs = [
+                ("".join(nonempty_chunks), intervals[0][0], intervals[-1][1])
+            ]
+
+        segments: list[Segment] = []
+        for text, start_ms, end_ms in pairs:
+            sentences = cls._split_sentences(text)
+            weights = [max(1, len(re.sub(r"\W", "", sentence))) for sentence in sentences]
+            total_weight = max(1, sum(weights))
+            elapsed_weight = 0
+            for sentence, weight in zip(sentences, weights, strict=True):
+                sentence_start = start_ms + round((end_ms - start_ms) * elapsed_weight / total_weight)
+                elapsed_weight += weight
+                sentence_end = start_ms + round((end_ms - start_ms) * elapsed_weight / total_weight)
+                segments.append(
+                    Segment(
+                        id=f"{session_id}_{speaker.value}_{len(segments) + 1:04d}",
+                        session_id=session_id,
+                        speaker=speaker,
+                        start_ms=sentence_start,
+                        end_ms=max(sentence_start + 1, sentence_end),
+                        text=sentence,
+                        confidence=0.92,
+                        is_final=True,
+                    )
+                )
+        return segments
+
+    @staticmethod
+    def _split_sentences(text: str) -> list[str]:
+        primary = [
+            match.group().strip()
+            for match in re.finditer(r".+?(?:[。！？!?；;]+|$)", text, flags=re.DOTALL)
+            if match.group().strip()
+        ]
+        sentences: list[str] = []
+        for sentence in primary:
+            if len(sentence) <= 36:
+                sentences.append(sentence)
+                continue
+            clauses = [
+                match.group().strip()
+                for match in re.finditer(r".+?(?:[，、]|$)", sentence)
+                if match.group().strip()
+            ]
+            current = ""
+            for clause in clauses:
+                if current and len(current) + len(clause) > 36:
+                    sentences.append(current)
+                    current = clause
+                else:
+                    current += clause
+            if current:
+                sentences.append(current)
+        return sentences or ([text.strip()] if text.strip() else [])
 
     def _parse_result(
         self,
@@ -294,5 +417,14 @@ class SenseVoiceProvider:
     @staticmethod
     def _clean_text(text: str) -> str:
         """Remove SenseVoice special markers like <|zh|>, <|NEUTRAL|>, <|Speech|>."""
-        text = re.sub(r"<\|[^|]+\|>", "", text)
+        text = re.sub(r"<\s*\|\s*[^<>]*?\s*\|\s*>", "", text)
+        if re.search(r"[\u4e00-\u9fff]", text):
+            text = text.replace(",", "，").replace("?", "？").replace("!", "！").replace(";", "；")
+            text = re.sub(r"(?<!\d)\.(?!\d)", "。", text)
+        text = re.sub(r"\s+", " ", text)
+        text = re.sub(r"\s*([，。！？；：])\s*", r"\1", text)
+        text = re.sub(r"([，。！？；])\1+", r"\1", text)
+        text = re.sub(r"，[。！？]", lambda match: match.group()[-1], text)
+        text = re.sub(r"。[,，]+", "。", text)
+        text = re.sub(r"(?<=[\u4e00-\u9fff])\s+(?=[\u4e00-\u9fff])", "", text)
         return text.strip()

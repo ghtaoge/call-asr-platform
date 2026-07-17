@@ -62,12 +62,12 @@ class AnalysisPipeline:
 
         progress(JobStage.transcribing_sales, 15)
         try:
-            sales = self.asr.transcribe(channels.left, session_id, Speaker.sales)
+            sales = self.asr.transcribe(channels.right, session_id, Speaker.sales)
         except Exception as exc:
             raise AnalysisPipelineError("asr_failed", "销售声道识别失败") from exc
         progress(JobStage.transcribing_customer, 40)
         try:
-            customer = self.asr.transcribe(channels.right, session_id, Speaker.customer)
+            customer = self.asr.transcribe(channels.left, session_id, Speaker.customer)
         except Exception as exc:
             raise AnalysisPipelineError("asr_failed", "客户声道识别失败") from exc
 
@@ -75,7 +75,7 @@ class AnalysisPipeline:
         segments = merge_channel_segments(sales, customer)
         if not segments:
             raise AnalysisPipelineError("asr_failed", "录音中未识别到有效语音")
-        channel_audio = {Speaker.sales: channels.left, Speaker.customer: channels.right}
+        channel_audio = {Speaker.sales: channels.right, Speaker.customer: channels.left}
 
         progress(JobStage.analyzing_emotion, 72)
         try:

@@ -17,10 +17,23 @@ const sections: Array<{ key: SummaryListKey; name: string }> = [
 
 <template>
   <section class="sideSection summarySection">
-    <header class="sideHeader"><h2><FileText :size="18" /> 通话摘要</h2><span class="deepseekBadge">DeepSeek</span></header>
+    <header class="sideHeader">
+      <h2><FileText :size="18" /> 通话摘要</h2>
+      <div class="summaryHeaderActions">
+        <span class="deepseekBadge">DeepSeek</span>
+        <button
+          v-if="status === 'failed' || status === 'completed'"
+          class="summaryRetryButton"
+          type="button"
+          title="重新生成通话摘要"
+          @click="emit('retry')"
+        >
+          <RefreshCw :size="14" />重新生成
+        </button>
+      </div>
+    </header>
     <div v-if="status === 'failed'" class="summaryFailure">
       <p>本地识别已完成，摘要生成失败。</p>
-      <button type="button" @click="emit('retry')"><RefreshCw :size="15" />重新生成</button>
     </div>
     <div v-else-if="status !== 'completed' || !summary" class="summaryLoading">摘要正在生成...</div>
     <div v-else class="summaryBody">
