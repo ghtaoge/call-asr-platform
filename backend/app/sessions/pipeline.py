@@ -60,6 +60,8 @@ class AnalysisPipeline:
         progress(JobStage.preparing_audio, 5)
         channels = self.audio.split_required_stereo(audio_bytes)
 
+        # Gooeto 录音的固定协议是：第一（左）声道为客户，第二（右）声道为销售。
+        # 角色必须在转写前绑定，后续摘要、敏感词和质检都会沿用此 speaker 值。
         progress(JobStage.transcribing_sales, 15)
         try:
             sales = self.asr.transcribe(channels.right, session_id, Speaker.sales)
@@ -75,10 +77,14 @@ class AnalysisPipeline:
         segments = merge_channel_segments(sales, customer)
         if not segments:
             raise AnalysisPipelineError("asr_failed", "录音中未识别到有效语音")
+        # 每个句子的时间戳只对其原始声道有效。情绪切片必须回到对应声道，
+        # 不能在双声道混音上按同一时间切片，否则另一方声音会污染判断。
         channel_audio = {Speaker.sales: channels.right, Speaker.customer: channels.left}
 
         progress(JobStage.analyzing_emotion, 72)
         try:
+            # 按 ASR 句段逐段识别，前端才能绘制随通话时间变化的情绪曲线，
+            # 而不是每个角色整段录音只有一个情绪结果。
             for segment in segments:
                 segment.emotion = self.emotion.analyze(
                     channel_audio[segment.speaker],

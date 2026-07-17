@@ -15,6 +15,9 @@ class ModelRegistry:
         if self._sensevoice is None:
             with self._lock:
                 if self._sensevoice is None:
+                    # SenseVoice 自身会输出标点和富文本标签。这里仅加载 VAD，不能再接
+                    # CT-Punc，否则情绪、语言等标签可能被拆成页面上可见的英文碎片。
+                    # 15 秒上限还能避免一整条声道只生成一个过长的“逐句”片段。
                     self._sensevoice = self._create(
                         model="iic/SenseVoiceSmall",
                         vad_model="fsmn-vad",

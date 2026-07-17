@@ -21,6 +21,8 @@ const filtered = computed(() => {
   const source = props.speaker === "all"
     ? props.segments
     : props.segments.filter((segment) => segment.speaker === props.speaker);
+  // “逐句”保留后端的 VAD/标点切分；“合并”只合并时间线上相邻且角色相同的句子，
+  // 因此切换模式会改变条目数，但不会打乱销售与客户的对话顺序。
   if (props.mode === "sentence") return source;
   const merged: DisplaySegment[] = [];
   for (const segment of source) {
@@ -29,6 +31,7 @@ const filtered = computed(() => {
       merged.push({ ...segment, sensitive_hits: [...segment.sensitive_hits], compliance_hits: [...segment.compliance_hits] });
       continue;
     }
+    // 合并文本插入了一个换行，敏感词索引必须同步偏移，否则标红位置会错位。
     const offset = previous.text.length + 1;
     previous.text += `\n${segment.text}`;
     previous.end_ms = segment.end_ms;

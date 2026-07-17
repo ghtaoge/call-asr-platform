@@ -56,6 +56,8 @@ class SenseVoiceProvider:
         speaker: Speaker = Speaker.unknown,
     ) -> list[Segment]:
         model = self._get_model()
+        # FunASR 的 SenseVoice 聚合结果不一定携带句级时间戳，因此先单独运行
+        # 同一模型实例里的 FSMN-VAD，保留每段真实语音的起止时间。
         vad_intervals = self._vad_intervals(model, path)
         result = model.generate(
             input=path,
@@ -80,6 +82,12 @@ class SenseVoiceProvider:
 
     @staticmethod
     def _vad_intervals(model: Any, path: str) -> list[list[int]]:
+        """从 FunASR 的 VAD 模型中取得并校验 ``[开始毫秒, 结束毫秒]`` 区间。
+
+        VAD 在这里是增强能力而不是硬依赖。旧版或测试注入的模型可能没有
+        ``vad_model``，所以推理异常时返回空列表，让调用方退回 SenseVoice
+        原始结果解析，而不是让整个语音识别任务失败。
+        """
         if not hasattr(model, "vad_model") or model.vad_model is None:
             return []
         try:
@@ -110,6 +118,14 @@ class SenseVoiceProvider:
         session_id: str,
         speaker: Speaker,
     ) -> list[Segment]:
+        """将 SenseVoice 富文本块与 VAD 区间配对，生成可展示的逐句记录。
+
+        SenseVoice 会在每个识别块前添加 ``<|zh|><|HAPPY|><|Speech|>`` 等标签。
+        部分标点模型会在标签内部插入空格，因此正则同时兼容正常和被拆散的格式。
+        文本块和区间数量相同时保留真实 VAD 时间；数量不一致时保留全部文字，
+        并映射到完整 VAD 范围，避免识别内容被静默丢弃。
+        """
+        # 连续两个及以上标签代表一个新 VAD 文本块的开始。
         marker_block = re.compile(
             r"(?:<\s*\|\s*[^<>]*?\s*\|\s*>\s*){2,}",
             flags=re.IGNORECASE,
@@ -138,6 +154,8 @@ class SenseVoiceProvider:
         segments: list[Segment] = []
         for text, start_ms, end_ms in pairs:
             sentences = cls._split_sentences(text)
+            # 这条识别路径没有词级时间戳，因此按句子有效字符数分配所在 VAD 的时长，
+            # 用于维持对话顺序和情绪曲线位置。这里是时间估算，不是音字强制对齐。
             weights = [max(1, len(re.sub(r"\W", "", sentence))) for sentence in sentences]
             total_weight = max(1, sum(weights))
             elapsed_weight = 0
@@ -161,6 +179,12 @@ class SenseVoiceProvider:
 
     @staticmethod
     def _split_sentences(text: str) -> list[str]:
+        """先按句末标点切分，再按自然停顿限制过长的中文语句。
+
+        电话口语经常只有逗号，直到很长之后才出现句号。如果整段保留为一行，
+        前端“逐句”模式和分时情绪曲线都失去意义。因此超过 36 个字符时，
+        再以中文逗号或顿号为边界重新组合。
+        """
         primary = [
             match.group().strip()
             for match in re.finditer(r".+?(?:[。！？!?；;]+|$)", text, flags=re.DOTALL)
@@ -415,7 +439,11 @@ class SenseVoiceProvider:
 
     @staticmethod
     def _clean_text(text: str) -> str:
-        """Remove SenseVoice special markers like <|zh|>, <|NEUTRAL|>, <|Speech|>."""
+        """清除富文本标签，并将标点规范为适合中文展示的格式。
+
+        标签正则兼容 ``< | S pe ech | >`` 这类被插入空格的异常形式。
+        只有文本包含中文时才转换标点，避免误改小数或其他语言的识别结果。
+        """
         text = re.sub(r"<\s*\|\s*[^<>]*?\s*\|\s*>", "", text)
         if re.search(r"[\u4e00-\u9fff]", text):
             text = text.replace(",", "，").replace("?", "？").replace("!", "！").replace(";", "；")

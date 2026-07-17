@@ -51,6 +51,12 @@ class AcousticEmotionProvider:
         self._audio = audio or AudioPreprocessor()
 
     def analyze(self, wav_bytes: bytes, start_ms: int, end_ms: int) -> EmotionResult:
+        """在说话人的独立声道中分析一个 ASR 句段的情绪。
+
+        emotion2vec 接收音频文件而不是字节区间，所以这里只把目标句段写入临时 WAV。
+        当前流程只使用分类分数，不需要向量结果，因此关闭 embedding 提取，减少
+        不必要的计算和内存消耗。
+        """
         clip = self._audio.slice_wav(wav_bytes, start_ms, end_ms)
         temporary = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
         try:
@@ -69,6 +75,8 @@ class AcousticEmotionProvider:
             except OSError:
                 pass
         label, confidence = self._best_result(result)
+        # 低置信度或未映射的类别统一展示为平静，避免微弱的声学猜测在曲线上
+        # 形成误导性的风险尖峰。
         if confidence < 0.35 or label not in VALENCE:
             return EmotionResult(label="neutral", confidence=confidence, score=0.0)
         return EmotionResult(

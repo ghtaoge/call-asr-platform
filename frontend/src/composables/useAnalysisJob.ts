@@ -84,6 +84,7 @@ export function useAnalysisJob() {
     try {
       const status = await requestSummaryRetry(job.value.job_id);
       job.value = status;
+      // 递增轮询代次，使旧请求返回时不能覆盖本次重新生成的摘要状态。
       generation += 1;
       await poll(status.job_id, generation);
     } catch (cause) {
