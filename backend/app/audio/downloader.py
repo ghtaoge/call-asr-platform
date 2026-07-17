@@ -47,7 +47,11 @@ class SafeAudioDownloader:
         headers = {
             "Accept": "audio/*,application/octet-stream;q=0.9,*/*;q=0.1",
             "Accept-Encoding": "gzip, deflate",
-            "User-Agent": "Call-ASR-Platform/1.0",
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/126.0.0.0 Safari/537.36"
+            ),
         }
         destination.parent.mkdir(parents=True, exist_ok=True)
         temporary = destination.with_name(f"{destination.name}.part")

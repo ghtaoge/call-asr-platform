@@ -55,3 +55,26 @@ def test_downloader_streams_valid_audio_and_removes_query_from_display_url(tmp_p
     )
     assert result.path.read_bytes() == b"RIFFaudio"
     assert result.display_url == "https://example.com/call.wav"
+
+
+def test_downloader_uses_browser_compatible_headers_for_strict_audio_servers(tmp_path):
+    def handler(request: httpx.Request):
+        headers = request.headers
+        accepted = (
+            headers["user-agent"].startswith("Mozilla/5.0")
+            and headers["accept-encoding"] == "gzip, deflate"
+        )
+        if not accepted:
+            return httpx.Response(406)
+        return httpx.Response(200, content=b"ID3audio", headers={"content-type": "audio/mp3"})
+
+    downloader = SafeAudioDownloader(
+        max_bytes=1024,
+        timeout=2,
+        transport=httpx.MockTransport(handler),
+        resolver=lambda host: ["93.184.216.34"],
+    )
+
+    result = downloader.download("https://example.com/call.mp3", tmp_path / "source")
+
+    assert result.path.read_bytes() == b"ID3audio"
