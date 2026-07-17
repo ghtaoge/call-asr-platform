@@ -177,6 +177,8 @@ id TEXT PRIMARY KEY
 session_id TEXT
 source_type TEXT
 source_url TEXT NULL
+source_path TEXT NULL
+source_content_type TEXT NULL
 status TEXT
 stage TEXT
 progress INTEGER
@@ -188,6 +190,8 @@ updated_at TEXT
 ```
 
 不保存 DeepSeek API Key。对于 URL 输入，日志不得输出完整签名查询参数；数据库可选择不保存 URL，或只保存去除 query 的脱敏地址。
+
+任务开始后将上传或下载的原始音频保存到 `data/jobs/{job_id}/source`，供后台识别和浏览器播放器复用。URL 查询参数不写入文件名或日志。默认保留 7 天，通过 `CALL_ASR_JOB_RETENTION_DAYS` 配置；启动时清理过期任务目录和对应任务记录。
 
 ### 6.3 摘要
 
@@ -281,6 +285,7 @@ POST /api/jobs/upload
 POST /api/jobs/url
 GET  /api/jobs/{job_id}
 GET  /api/jobs/{job_id}/result
+GET  /api/jobs/{job_id}/audio
 POST /api/jobs/{job_id}/retry-summary
 ```
 
@@ -297,6 +302,8 @@ POST /api/jobs/{job_id}/retry-summary
 ```
 
 `GET /api/jobs/{job_id}` 返回轻量状态。只有完成或部分完成时，前端才请求完整结果，避免轮询反复传输全部转写。
+
+`GET /api/jobs/{job_id}/audio` 从任务目录返回本地音频并支持 HTTP Range 请求。URL 任务必须先将远程音频下载到任务目录，前端不得直接播放签名 URL。音频尚未准备好时返回 409，任务不存在或音频已过期时返回 404。
 
 保留现有 `/api/sessions/offline` 和 `/api/sessions/url` 作为兼容接口；新页面只调用 Job API。兼容接口的后续移除不属于本期范围。
 
