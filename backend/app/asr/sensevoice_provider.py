@@ -31,8 +31,7 @@ class SenseVoiceProvider:
             self._model = AutoModel(
                 model="iic/SenseVoiceSmall",
                 vad_model="fsmn-vad",
-                punc_model="ct-punc",
-                vad_kwargs={"max_single_segment_time": 30_000},
+                vad_kwargs={"max_single_segment_time": 15_000},
                 trust_remote_code=True,
                 disable_update=True,
             )

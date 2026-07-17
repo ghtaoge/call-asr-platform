@@ -1,3 +1,6 @@
+import sys
+from types import SimpleNamespace
+
 from app.asr.sensevoice_provider import SenseVoiceProvider
 from app.core.models import Speaker
 
@@ -13,6 +16,22 @@ class FakeSenseVoice:
                 ],
             }
         ]
+
+
+def test_default_loader_uses_vad_without_external_punctuation(monkeypatch):
+    options = {}
+
+    def fake_auto_model(**kwargs):
+        options.update(kwargs)
+        return object()
+
+    monkeypatch.setitem(sys.modules, "funasr", SimpleNamespace(AutoModel=fake_auto_model))
+
+    SenseVoiceProvider()._get_model()
+
+    assert options["vad_model"] == "fsmn-vad"
+    assert options["vad_kwargs"]["max_single_segment_time"] == 15_000
+    assert "punc_model" not in options
 
 
 def test_sensevoice_returns_atomic_timestamped_segments():
