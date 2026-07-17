@@ -19,7 +19,8 @@ class RiskLevel(StrEnum):
 
 class EmotionResult(BaseModel):
     label: Literal["positive", "neutral", "negative", "angry", "anxious"]
-    score: float = Field(ge=0, le=1)
+    confidence: float = Field(default=0.5, ge=0, le=1)
+    score: float = Field(default=0.0, ge=-1, le=1)
 
 
 class SensitiveHit(BaseModel):
@@ -53,7 +54,7 @@ class Segment(BaseModel):
     translation: str = ""
     language: str = "zh"
     target_language: str = "en"
-    emotion: EmotionResult = EmotionResult(label="neutral", score=0.5)
+    emotion: EmotionResult = EmotionResult(label="neutral", confidence=0.5, score=0.0)
     sensitive_hits: list[SensitiveHit] = Field(default_factory=list)
     compliance_hits: list[ComplianceHit] = Field(default_factory=list)
     confidence: float = Field(default=0.0, ge=0, le=1)
@@ -73,6 +74,7 @@ class QualityScore(BaseModel):
 
 
 class CallSummary(BaseModel):
+    overview: str = ""
     customer_needs: list[str] = Field(default_factory=list)
     sales_promises: list[str] = Field(default_factory=list)
     risk_points: list[str] = Field(default_factory=list)

@@ -18,13 +18,21 @@ class QualityScorer:
             suggestions.append("本通电话存在风险命中，建议质检人员复核对应片段。")
         if negative_ratio > 0.3:
             suggestions.append("客户负面情绪占比较高，建议优先安排跟进。")
+        interruptions = 0
+        active: dict[Speaker, int] = {Speaker.sales: -1, Speaker.customer: -1}
+        for segment in sorted(segments, key=lambda item: (item.start_ms, item.end_ms)):
+            other = Speaker.customer if segment.speaker == Speaker.sales else Speaker.sales
+            if segment.speaker in {Speaker.sales, Speaker.customer} and segment.start_ms < active[other]:
+                interruptions += 1
+            if segment.speaker in active:
+                active[segment.speaker] = max(active[segment.speaker], segment.end_ms)
         return QualityScore(
             score=max(0, min(100, score)),
             noise_level=noise_level,
             silence_ratio=silence_ratio,
             sales_talk_ratio=sales_duration / total_duration,
             customer_talk_ratio=customer_duration / total_duration,
-            interruptions=0,
+            interruptions=interruptions,
             negative_emotion_ratio=negative_ratio,
             risk_hit_count=risk_count,
             suggestions=suggestions,

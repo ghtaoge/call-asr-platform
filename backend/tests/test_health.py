@@ -13,4 +13,4 @@ def test_health_returns_runtime_status():
     assert body["status"] == "ok"
     assert body["app"] == "Call ASR Platform"
     assert body["device"] in {"cpu", "cuda"}
-    assert body["asr_provider"] == "mock"
+    assert body["asr_provider"] == "sensevoice"

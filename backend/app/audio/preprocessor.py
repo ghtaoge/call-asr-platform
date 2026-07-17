@@ -1,5 +1,7 @@
 import tempfile
 import os
+import io
+import wave
 from dataclasses import dataclass
 from typing import Literal
 
@@ -18,6 +20,10 @@ class ChannelSplitResult:
     right: bytes  # Right channel (customer) as WAV bytes
     is_stereo: bool
     original: bytes  # Original audio bytes (used if mono)
+
+
+class UnsupportedChannelLayout(ValueError):
+    pass
 
 
 class AudioPreprocessor:
@@ -113,6 +119,32 @@ class AudioPreprocessor:
                 os.unlink(tmp.name)
             except OSError:
                 pass
+
+    def split_required_stereo(self, audio_bytes: bytes) -> ChannelSplitResult:
+        result = self.split_channels(audio_bytes)
+        if not result.is_stereo:
+            raise UnsupportedChannelLayout("双声道录音才能区分销售和客户")
+        return result
+
+    def slice_wav(self, wav_bytes: bytes, start_ms: int, end_ms: int) -> bytes:
+        if end_ms <= start_ms:
+            raise ValueError("invalid audio interval")
+        source = io.BytesIO(wav_bytes)
+        output = io.BytesIO()
+        with wave.open(source, "rb") as reader:
+            rate = reader.getframerate()
+            start_frame = max(0, min(reader.getnframes(), int(start_ms * rate / 1000)))
+            end_frame = max(start_frame, min(reader.getnframes(), int(end_ms * rate / 1000)))
+            if end_frame <= start_frame:
+                raise ValueError("audio interval contains no frames")
+            reader.setpos(start_frame)
+            frames = reader.readframes(end_frame - start_frame)
+            with wave.open(output, "wb") as writer:
+                writer.setnchannels(reader.getnchannels())
+                writer.setsampwidth(reader.getsampwidth())
+                writer.setframerate(rate)
+                writer.writeframes(frames)
+        return output.getvalue()
 
     def _resample(self, arr: "np.ndarray", orig_sr: int, target_sr: int) -> "np.ndarray":
         """Simple linear interpolation resampling."""

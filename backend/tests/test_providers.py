@@ -20,7 +20,8 @@ def test_emotion_detects_angry_text():
     result = provider.analyze("我很生气，你们必须处理")
 
     assert result.label == "angry"
-    assert result.score >= 0.8
+    assert result.confidence >= 0.8
+    assert result.score < 0
 
 
 def test_translation_provider_marks_target_language():

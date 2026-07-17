@@ -1,58 +1,127 @@
 <script setup lang="ts">
-import type { Segment, SensitiveHit } from "../types";
+import { computed } from "vue";
+import { Clock3, MessageSquareText } from "lucide-vue-next";
+import type { Segment, SensitiveHit, Speaker } from "../types";
 
-defineProps<{
+const props = defineProps<{
   segments: Segment[];
+  activeTime: number;
+  mode: "sentence" | "merged";
+  speaker: "all" | Speaker;
+}>();
+const emit = defineEmits<{
+  seek: [milliseconds: number];
+  updateMode: [value: "sentence" | "merged"];
+  updateSpeaker: [value: "all" | Speaker];
 }>();
 
-function speakerName(speaker: Segment["speaker"]) {
+interface DisplaySegment extends Segment {}
+
+const filtered = computed(() => {
+  const source = props.speaker === "all"
+    ? props.segments
+    : props.segments.filter((segment) => segment.speaker === props.speaker);
+  if (props.mode === "sentence") return source;
+  const merged: DisplaySegment[] = [];
+  for (const segment of source) {
+    const previous = merged[merged.length - 1];
+    if (!previous || previous.speaker !== segment.speaker) {
+      merged.push({ ...segment, sensitive_hits: [...segment.sensitive_hits], compliance_hits: [...segment.compliance_hits] });
+      continue;
+    }
+    const offset = previous.text.length + 1;
+    previous.text += `\n${segment.text}`;
+    previous.end_ms = segment.end_ms;
+    previous.sensitive_hits.push(...segment.sensitive_hits.map((hit) => ({
+      ...hit,
+      start: hit.start + offset,
+      end: hit.end + offset
+    })));
+    previous.compliance_hits.push(...segment.compliance_hits);
+  }
+  return merged;
+});
+
+function speakerName(speaker: Speaker) {
   return speaker === "sales" ? "销售" : speaker === "customer" ? "客户" : "未知";
 }
 
-	function renderHighlightedText(segment: Segment): Array<{ text: string; hit?: SensitiveHit }> {
-	  if (segment.sensitive_hits.length === 0) {
-	    return [{ text: segment.text }];
-	  }
-	  const ordered = [...segment.sensitive_hits].sort((a, b) => a.start - b.start);
-	  const parts: Array<{ text: string; hit?: SensitiveHit }> = [];
-	  let cursor = 0;
-	  for (const hit of ordered) {
-	    if (cursor < hit.start) {
-	      parts.push({ text: segment.text.slice(cursor, hit.start) });
-	    }
-	    parts.push({ text: segment.text.slice(hit.start, hit.end), hit });
-	    cursor = hit.end;
-	  }
-	  if (cursor < segment.text.length) {
-	    parts.push({ text: segment.text.slice(cursor) });
-	  }
-	  return parts;
-	}
+function formatTime(milliseconds: number) {
+  const seconds = Math.floor(milliseconds / 1000);
+  return `${String(Math.floor(seconds / 60)).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`;
+}
+
+function emotionName(label: string) {
+  const names: Record<string, string> = {
+    positive: "积极",
+    neutral: "平静",
+    negative: "消极",
+    angry: "生气",
+    anxious: "焦虑"
+  };
+  return names[label] ?? label;
+}
+
+function highlighted(segment: Segment): Array<{ text: string; hit?: SensitiveHit }> {
+  const hits = [...segment.sensitive_hits]
+    .sort((a, b) => a.start - b.start || b.end - a.end)
+    .filter((hit, index, all) => index === 0 || hit.start >= all[index - 1].end);
+  if (!hits.length) return [{ text: segment.text }];
+  const parts: Array<{ text: string; hit?: SensitiveHit }> = [];
+  let cursor = 0;
+  for (const hit of hits) {
+    if (hit.start > cursor) parts.push({ text: segment.text.slice(cursor, hit.start) });
+    parts.push({ text: segment.text.slice(hit.start, hit.end), hit });
+    cursor = hit.end;
+  }
+  if (cursor < segment.text.length) parts.push({ text: segment.text.slice(cursor) });
+  return parts;
+}
 </script>
 
 <template>
-  <section class="transcript" aria-label="通话内容">
-    <h2>通话内容</h2>
-    <p v-if="segments.length === 0" class="empty">上传录音或开始实时演示后，分段转写会显示在这里。</p>
-    <div v-else class="segmentList">
-      <article
-        v-for="segment in segments"
-        :key="segment.id"
-        :class="['segment', segment.speaker]"
-      >
-        <div class="segmentMeta">
-          <strong>{{ speakerName(segment.speaker) }}</strong>
-          <span>{{ Math.round(segment.start_ms / 1000) }}s - {{ Math.round(segment.end_ms / 1000) }}s</span>
-          <span>{{ segment.emotion.label }}</span>
+  <section class="panel transcriptPanel" aria-label="通话内容">
+    <header class="panelHeader">
+      <div>
+        <h2><MessageSquareText :size="18" /> 通话内容</h2>
+        <p>共 {{ segments.length }} 个有效语句</p>
+      </div>
+      <div class="panelControls">
+        <div class="segmented" aria-label="显示方式">
+          <button :class="{ active: mode === 'sentence' }" @click="emit('updateMode', 'sentence')">逐句</button>
+          <button :class="{ active: mode === 'merged' }" @click="emit('updateMode', 'merged')">合并</button>
         </div>
-        <p>
-          <template v-for="part in renderHighlightedText(segment)" :key="part.text + (part.hit?.start ?? '')">
-            <mark v-if="part.hit" :class="`hit-${part.hit.level}`">{{ part.text }}</mark>
-            <span v-else>{{ part.text }}</span>
-          </template>
-        </p>
-        <small>{{ segment.translation }}</small>
-      </article>
+        <select :value="speaker" aria-label="筛选说话人" @change="emit('updateSpeaker', ($event.target as HTMLSelectElement).value as 'all' | Speaker)">
+          <option value="all">全部角色</option>
+          <option value="sales">仅销售</option>
+          <option value="customer">仅客户</option>
+        </select>
+      </div>
+    </header>
+    <div v-if="!filtered.length" class="emptyState">暂无识别内容</div>
+    <div v-else class="segmentList">
+      <button
+        v-for="segment in filtered"
+        :key="segment.id"
+        type="button"
+        :class="['segmentRow', segment.speaker, { active: activeTime >= segment.start_ms && activeTime < segment.end_ms }]"
+        @click="emit('seek', segment.start_ms)"
+      >
+        <span class="speakerBadge">{{ speakerName(segment.speaker) }}</span>
+        <span class="segmentBody">
+          <span class="segmentText">
+            <template v-for="(part, index) in highlighted(segment)" :key="`${segment.id}-${index}`">
+              <mark v-if="part.hit" :class="`hit-${part.hit.level}`" :title="`${part.hit.category} · ${part.hit.level}`">{{ part.text }}</mark>
+              <span v-else>{{ part.text }}</span>
+            </template>
+          </span>
+          <span v-if="segment.compliance_hits.length" class="complianceText">{{ segment.compliance_hits[0].message }}</span>
+        </span>
+        <span class="segmentAside">
+          <span :class="['emotionTag', segment.emotion.label]">{{ emotionName(segment.emotion.label) }}</span>
+          <span class="timeTag"><Clock3 :size="13" /> {{ formatTime(segment.start_ms) }}</span>
+        </span>
+      </button>
     </div>
   </section>
 </template>

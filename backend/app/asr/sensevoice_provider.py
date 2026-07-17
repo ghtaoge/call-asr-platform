@@ -1,61 +1,188 @@
 import tempfile
 import os
+import math
+import re
 import warnings
+import wave
+from collections.abc import Callable
+from typing import Any
 
 from app.core.models import Segment, Speaker
-from app.postprocess.text import add_basic_punctuation
 
 
 class SenseVoiceProvider:
     """ASR provider using Alibaba SenseVoice model via funasr."""
 
-    def __init__(self) -> None:
-        from funasr import AutoModel
-        # Suppress the trust_remote_code warning
-        warnings.filterwarnings("ignore", message="trust_remote_code")
-        self._model = AutoModel(
-            model="iic/SenseVoiceSmall",
-            trust_remote_code=True,
-            disable_update=True,
-        )
+    def __init__(
+        self,
+        model: Any | None = None,
+        model_loader: Callable[[], Any] | None = None,
+    ) -> None:
+        self._model = model
+        self._model_loader = model_loader
+
+    def _get_model(self) -> Any:
+        if self._model is None and self._model_loader is not None:
+            self._model = self._model_loader()
+        if self._model is None:
+            from funasr import AutoModel
+
+            warnings.filterwarnings("ignore", message="trust_remote_code")
+            self._model = AutoModel(
+                model="iic/SenseVoiceSmall",
+                vad_model="fsmn-vad",
+                punc_model="ct-punc",
+                vad_kwargs={"max_single_segment_time": 30_000},
+                trust_remote_code=True,
+                disable_update=True,
+            )
+        return self._model
 
     def transcribe(self, audio: bytes, session_id: str, speaker: Speaker = Speaker.unknown) -> list[Segment]:
         # Convert audio bytes to a standard WAV file that SenseVoice/funasr can read
         wav_path = self._convert_to_wav(audio)
 
         try:
-            res = self._model.generate(input=wav_path, language="auto")
-        except Exception as e:
-            # If SenseVoice fails, log the error and return empty
-            import logging
-            logging.getLogger(__name__).error(f"SenseVoice transcription failed: {e}")
-            return []
+            return self.transcribe_file(wav_path, session_id, speaker)
         finally:
             try:
                 os.unlink(wav_path)
             except OSError:
                 pass
 
-        results: list[Segment] = []
-        if res and len(res) > 0:
-            for item in res:
-                text_content = item.get("text", "") if isinstance(item, dict) else str(item)
-                text_content = self._clean_text(text_content)
-                if text_content:
-                    results.append(
-                        Segment(
-                            id=f"{session_id}_seg_{len(results)+1:03d}",
-                            session_id=session_id,
-                            speaker=Speaker(speaker),
-                            start_ms=0,
-                            end_ms=max(1000, len(audio) * 10),
-                            text=add_basic_punctuation(text_content),
-                            confidence=0.92,
-                            is_final=True,
-                        )
-                    )
+    def transcribe_file(
+        self,
+        path: str,
+        session_id: str,
+        speaker: Speaker = Speaker.unknown,
+    ) -> list[Segment]:
+        result = self._get_model().generate(
+            input=path,
+            language="zh",
+            use_itn=True,
+            merge_vad=False,
+            batch_size_s=60,
+        )
+        return self._parse_result(result, session_id, Speaker(speaker), self._duration_ms(path))
 
+    def _parse_result(
+        self,
+        result: Any,
+        session_id: str,
+        speaker: Speaker,
+        duration_ms: int,
+    ) -> list[Segment]:
+        results: list[Segment] = []
+        if not result or not isinstance(result, list):
+            return results
+        fallback_text = ""
+        sentence_items: list[dict[str, Any]] = []
+        for item in result:
+            if not isinstance(item, dict):
+                fallback_text = fallback_text or str(item)
+                continue
+            fallback_text = fallback_text or str(item.get("text", ""))
+            structured = item.get("sentence_info") or item.get("sentences")
+            if isinstance(structured, list):
+                sentence_items.extend(entry for entry in structured if isinstance(entry, dict))
+            elif "start" in item and "end" in item:
+                sentence_items.append(item)
+            elif isinstance(item.get("timestamp"), list):
+                sentence_items.extend(
+                    self._sentences_from_timestamps(str(item.get("text", "")), item["timestamp"])
+                )
+        for item in sentence_items:
+            text_content = self._clean_text(str(item.get("text") or item.get("sentence") or ""))
+            start_ms = int(item.get("start", 0))
+            end_ms = int(item.get("end", 0))
+            if not text_content or start_ms < 0 or end_ms <= start_ms:
+                continue
+            confidence = float(item.get("confidence", item.get("score", 0.92)))
+            results.append(
+                Segment(
+                    id=f"{session_id}_{speaker.value}_{len(results) + 1:04d}",
+                    session_id=session_id,
+                    speaker=speaker,
+                    start_ms=start_ms,
+                    end_ms=end_ms,
+                    text=text_content,
+                    confidence=max(0.0, min(1.0, confidence)),
+                    is_final=True,
+                )
+            )
+        if not results:
+            text_content = self._clean_text(fallback_text)
+            if text_content:
+                results.append(
+                    Segment(
+                        id=f"{session_id}_{speaker.value}_0001",
+                        session_id=session_id,
+                        speaker=speaker,
+                        start_ms=0,
+                        end_ms=max(1000, duration_ms),
+                        text=text_content,
+                        confidence=0.92,
+                        is_final=True,
+                    )
+                )
         return results
+
+    @classmethod
+    def _sentences_from_timestamps(
+        cls,
+        raw_text: str,
+        raw_timestamps: list[Any],
+    ) -> list[dict[str, Any]]:
+        text = cls._clean_text(raw_text)
+        timestamps = [
+            (int(value[0]), int(value[1]))
+            for value in raw_timestamps
+            if isinstance(value, (list, tuple))
+            and len(value) >= 2
+            and isinstance(value[0], (int, float))
+            and isinstance(value[1], (int, float))
+            and value[1] > value[0]
+        ]
+        if not text or not timestamps:
+            return []
+
+        punctuation = set("，。！？；：、,.!?;:\"'“”‘’（）()《》")
+        spoken_positions = [
+            position for position, character in enumerate(text)
+            if not character.isspace() and character not in punctuation
+        ]
+        if not spoken_positions:
+            return []
+
+        sentences: list[dict[str, Any]] = []
+        for match in re.finditer(r".+?(?:[。！？!?；;]+|$)", text, flags=re.DOTALL):
+            sentence = match.group().strip()
+            if not sentence:
+                continue
+            spoken_start = sum(position < match.start() for position in spoken_positions)
+            spoken_end = sum(position < match.end() for position in spoken_positions)
+            ratio = len(timestamps) / len(spoken_positions)
+            start_index = min(len(timestamps) - 1, int(spoken_start * ratio))
+            end_index = min(
+                len(timestamps) - 1,
+                max(start_index, math.ceil(spoken_end * ratio) - 1),
+            )
+            sentences.append(
+                {
+                    "text": sentence,
+                    "start": timestamps[start_index][0],
+                    "end": timestamps[end_index][1],
+                }
+            )
+        return sentences
+
+    @staticmethod
+    def _duration_ms(path: str) -> int:
+        try:
+            with wave.open(path, "rb") as audio:
+                return int(audio.getnframes() * 1000 / audio.getframerate())
+        except (wave.Error, OSError, ZeroDivisionError):
+            return 1000
 
     def _convert_to_wav(self, audio_bytes: bytes) -> str:
         """Convert audio bytes to a standard WAV file using PyAV.
@@ -164,8 +291,8 @@ class SenseVoiceProvider:
             f.write(header)
             f.write(int_arr.tobytes())
 
-    def _clean_text(self, text: str) -> str:
+    @staticmethod
+    def _clean_text(text: str) -> str:
         """Remove SenseVoice special markers like <|zh|>, <|NEUTRAL|>, <|Speech|>."""
-        import re
         text = re.sub(r"<\|[^|]+\|>", "", text)
         return text.strip()

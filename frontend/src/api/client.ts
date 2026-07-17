@@ -1,50 +1,46 @@
-import type { CallSummary, QualityScore, Segment, Speaker } from "../types";
+import type {
+  AnalysisResult,
+  JobCreateResponse,
+  JobStatusResponse
+} from "../types";
 
-const API_BASE = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:8000";
-const WS_BASE = API_BASE.replace(/^http/, "ws");
+export const API_BASE = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:8000";
 
-export interface OfflineResult {
-  session_id: string;
-  segments: Segment[];
-  quality: QualityScore;
-  summary: CallSummary;
-}
-
-export async function uploadOffline(file: File): Promise<OfflineResult> {
-  const form = new FormData();
-  form.append("file", file);
-  const response = await fetch(`${API_BASE}/api/sessions/offline`, {
-    method: "POST",
-    body: form
-  });
+async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(`${API_BASE}${url}`, init);
   if (!response.ok) {
-    throw new Error(`上传失败：${response.status}`);
+    const payload = await response.json().catch(() => ({ detail: response.statusText }));
+    throw new Error(payload.detail || `请求失败（${response.status}）`);
   }
   return response.json();
 }
 
-export function openRealtimeSession(
-  sessionId: string,
-  speaker: Speaker,
-  onEvent: (event: any) => void
-) {
-  const ws = new WebSocket(`${WS_BASE}/ws/realtime/${sessionId}`);
-  ws.addEventListener("open", () => {
-    ws.send(JSON.stringify({ type: "start_session", speaker, target_language: "en" }));
-  });
-  ws.addEventListener("message", (message) => onEvent(JSON.parse(message.data)));
-  return ws;
+export function createUploadJob(file: File): Promise<JobCreateResponse> {
+  const form = new FormData();
+  form.append("file", file);
+  return requestJson("/api/jobs/upload", { method: "POST", body: form });
 }
 
-export async function analyzeByUrl(audioUrl: string): Promise<OfflineResult> {
-  const response = await fetch(`${API_BASE}/api/sessions/url`, {
+export function createUrlJob(audioUrl: string): Promise<JobCreateResponse> {
+  return requestJson("/api/jobs/url", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ audio_url: audioUrl })
   });
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ detail: response.statusText }));
-    throw new Error(error.detail || `识别失败：${response.status}`);
-  }
-  return response.json();
+}
+
+export function getJob(jobId: string): Promise<JobStatusResponse> {
+  return requestJson(`/api/jobs/${jobId}`);
+}
+
+export function getJobResult(jobId: string): Promise<AnalysisResult> {
+  return requestJson(`/api/jobs/${jobId}/result`);
+}
+
+export function retrySummary(jobId: string): Promise<JobStatusResponse> {
+  return requestJson(`/api/jobs/${jobId}/retry-summary`, { method: "POST" });
+}
+
+export function jobAudioUrl(jobId: string): string {
+  return `${API_BASE}/api/jobs/${jobId}/audio`;
 }

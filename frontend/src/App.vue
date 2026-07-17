@@ -1,89 +1,77 @@
 <script setup lang="ts">
-import { ref } from "vue";
-import { openRealtimeSession, uploadOffline, analyzeByUrl } from "./api/client";
+import { computed, ref } from "vue";
+import { AudioLines } from "lucide-vue-next";
+import { jobAudioUrl } from "./api/client";
+import AudioPlayer from "./components/AudioPlayer.vue";
+import EmotionChart from "./components/EmotionChart.vue";
+import JobProgress from "./components/JobProgress.vue";
+import QualityPanel from "./components/QualityPanel.vue";
+import SensitivePanel from "./components/SensitivePanel.vue";
+import SummaryPanel from "./components/SummaryPanel.vue";
 import Toolbar from "./components/Toolbar.vue";
 import TranscriptPanel from "./components/TranscriptPanel.vue";
-import RiskPanel from "./components/RiskPanel.vue";
-import type { CallSummary, QualityScore, Segment, Speaker } from "./types";
+import { useAnalysisJob } from "./composables/useAnalysisJob";
+import type { Speaker } from "./types";
 
-const speaker = ref<Speaker>("sales");
-const status = ref("准备就绪");
-const segments = ref<Segment[]>([]);
-const quality = ref<QualityScore>();
-const summary = ref<CallSummary>();
 const audioUrl = ref("");
-const isLoading = ref(false);
+const activeTime = ref(0);
+const transcriptMode = ref<"sentence" | "merged">("sentence");
+const speakerFilter = ref<"all" | Speaker>("all");
+const audioPlayer = ref<InstanceType<typeof AudioPlayer>>();
+const { job, result, error, isWorking, statusText, submitFile, submitUrl, retrySummary } = useAnalysisJob();
 
-async function handleUpload(file: File) {
-  status.value = "正在分析离线录音...";
-  try {
-    const result = await uploadOffline(file);
-    segments.value = result.segments;
-    quality.value = result.quality;
-    summary.value = result.summary;
-    status.value = `分析完成：${result.session_id}`;
-  } catch (error) {
-    status.value = error instanceof Error ? error.message : "上传失败";
-  }
+const sourceAudio = computed(() => job.value ? jobAudioUrl(job.value.job_id) : "");
+
+function analyzeUrl() {
+  const url = audioUrl.value.trim();
+  if (!/^https?:\/\//i.test(url)) return;
+  void submitUrl(url);
 }
 
-function handleRealtime() {
-  const sessionId = `web_${Date.now()}`;
-  openRealtimeSession(sessionId, speaker.value, (event) => {
-    if (event.type === "session_started") {
-      status.value = `实时会话已连接：${sessionId}`;
-    }
-    if (event.type === "final_segment") {
-      segments.value = [...segments.value, event.segment];
-    }
-    if (event.type === "quality_update") {
-      quality.value = event.quality;
-    }
-    if (event.type === "summary_ready") {
-      summary.value = event.summary;
-    }
-  });
-  status.value = `正在连接实时会话：当前角色 ${speaker.value}`;
-}
-
-async function handleUrlAnalyze() {
-  if (!audioUrl.value || isLoading.value) return;
-  if (!/^https?:\/\/.+/i.test(audioUrl.value)) {
-    status.value = "URL 格式不合法，需要以 http:// 或 https:// 开头";
-    return;
-  }
-  isLoading.value = true;
-  status.value = "正在从 URL 下载并分析语音...";
-  try {
-    const result = await analyzeByUrl(audioUrl.value);
-    segments.value = result.segments;
-    quality.value = result.quality;
-    summary.value = result.summary;
-    status.value = `分析完成：${result.session_id}`;
-  } catch (error) {
-    status.value = error instanceof Error ? error.message : "URL 识别失败";
-  } finally {
-    isLoading.value = false;
-  }
+function seek(milliseconds: number) {
+  audioPlayer.value?.seek(milliseconds);
 }
 </script>
 
 <template>
   <main class="workbench">
     <Toolbar
-      :status="status"
-      :speaker="speaker"
       :audio-url="audioUrl"
-      :is-loading="isLoading"
-      @update-speaker="speaker = $event"
+      :is-working="isWorking"
+      :status="statusText"
       @update-audio-url="audioUrl = $event"
-      @upload="handleUpload"
-      @realtime="handleRealtime"
-      @url-analyze="handleUrlAnalyze"
+      @upload="submitFile"
+      @url-analyze="analyzeUrl"
     />
-    <section class="layout">
-      <TranscriptPanel :segments="segments" />
-      <RiskPanel :segments="segments" :quality="quality" :summary="summary" />
+    <JobProgress :job="job" :status="statusText" :has-error="Boolean(error)" />
+
+    <div v-if="result" class="workspace">
+      <AudioPlayer ref="audioPlayer" :src="sourceAudio" @time="activeTime = $event" />
+      <section class="analysisLayout">
+        <div class="primaryColumn">
+          <EmotionChart :segments="result.segments" @seek="seek" />
+          <TranscriptPanel
+            :segments="result.segments"
+            :active-time="activeTime"
+            :mode="transcriptMode"
+            :speaker="speakerFilter"
+            @seek="seek"
+            @update-mode="transcriptMode = $event"
+            @update-speaker="speakerFilter = $event"
+          />
+        </div>
+        <aside class="insightPanel">
+          <QualityPanel :quality="result.quality" />
+          <SensitivePanel :segments="result.segments" @seek="seek" />
+          <SummaryPanel :summary="result.summary" :status="result.summary_status" @retry="retrySummary" />
+        </aside>
+      </section>
+    </div>
+
+    <section v-else-if="!isWorking" class="initialState">
+      <AudioLines :size="38" />
+      <h2>尚未提交通话录音</h2>
+      <p>请粘贴语音链接，或上传本地双声道录音。</p>
     </section>
   </main>
 </template>

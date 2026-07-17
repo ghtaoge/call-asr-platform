@@ -8,13 +8,18 @@ describe("App.vue", () => {
       global: {
         stubs: {
           Toolbar: true,
+          JobProgress: true,
+          AudioPlayer: true,
+          EmotionChart: true,
           TranscriptPanel: true,
-          RiskPanel: true
+          QualityPanel: true,
+          SensitivePanel: true,
+          SummaryPanel: true
         }
       }
     });
 
     expect(wrapper.find("main.workbench").exists()).toBe(true);
-    expect(wrapper.find("section.layout").exists()).toBe(true);
+    expect(wrapper.find("section.initialState").exists()).toBe(true);
   });
 });

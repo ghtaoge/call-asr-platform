@@ -1,103 +1,80 @@
-# Call ASR Platform — 通话语音智能分析平台
+# Call ASR Platform
 
-本地优先的通话语音智能分析原型，面向销售/客服通话质检场景。系统支持离线录音上传、实时 WebSocket 音频流、敏感词识别、情绪标签、翻译字段、自动标点、长内容分段、风险告警、通话质量评分、话术合规检测和通话摘要。
+面向销售和客服通话质检的本地优先语音分析平台。系统使用阿里开源模型完成双声道语音识别、说话人区分、标点与分段，并提供声学情绪曲线、分级敏感词、合规检查、通话质检和 DeepSeek 结构化摘要。
 
-## 功能特性
+## 主要能力
 
-- 离线录音上传与分析
-- 实时 WebSocket 通话流模拟
-- 销售/客服说话人元数据区分
-- Aho-Corasick 风格敏感词扫描，支持大词库
-- 风险分级高亮：`low`、`medium`、`high`、`critical`
-- 基于规则的话术合规检测
-- 情绪标签与翻译 Provider 边界
-- 通话质量评分与摘要生成
-- 可选 `faster-whisper` Provider 边界，支持本地 ASR 模型
-- CPU 优先可运行原型，预留 GPU 加速钩子
+- SenseVoice + FSMN-VAD + CT-Punc：中文语音识别、时间戳、分句和标点
+- 双声道角色区分：左声道为销售，右声道为客户
+- Emotion2Vec：逐时间段声学情绪分析，分别显示销售和客户曲线
+- 敏感词与合规规则：`low`、`medium`、`high`、`critical` 四级标记
+- DeepSeek 摘要：概述、客户诉求、销售承诺、风险、待办和下一步建议
+- 后台任务：上传或 URL 提交后异步处理，支持进度查询和失败恢复
+- 原始录音回放：支持 HTTP Range，点击语句或图表节点可跳转时间点
+- URL 安全下载：限制协议、重定向、文件大小，并阻止内网与本机地址
 
-## 系统架构
+## 音频要求
 
-```text
-前端 React 工作台
-  -> REST 上传 / WebSocket 实时流
-后端 FastAPI
-  -> 音频预处理边界
-  -> ASR Provider
-  -> 标点与分段
-  -> 敏感词扫描
-  -> 合规、情绪、翻译
-  -> 质量评分与摘要
-  -> SQLite 会话存储
-```
+角色区分依赖双声道录音：左声道必须是销售，右声道必须是客户。单声道或多声道文件会返回 `unsupported_channel_layout`，不会猜测说话人身份。
 
-详细文档：
+支持 FFmpeg 能解码的 WAV、MP3、M4A、AAC、FLAC、OGG 等常见格式。单个文件默认不超过 50 MB。
 
-- [架构设计](docs/ARCHITECTURE.md)
-- [API 参考](docs/API.md)
-- [部署指南](docs/DEPLOY.md)
-- [敏感词词库](docs/SENSITIVE_WORDS.md)
-- [开发指南](docs/DEVELOPMENT.md)
+## 启动后端
 
-## 后端
-
-```bash
-cd call-asr-platform/backend
+```powershell
+cd call-asr-platform\backend
 python -m venv .venv
-.venv\Scripts\activate
-python -m pip install -e .[test]
-python -m pytest -v
-uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+.venv\Scripts\Activate.ps1
+python -m pip install -e ".[test]"
+Copy-Item ..\.env.example .env
+python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
 ```
 
-默认 ASR Provider 为 `mock`，无需下载模型即可跑通完整产品流程。
+在 `backend/.env` 中设置 `DEEPSEEK_API_KEY` 后才会生成智能摘要。没有 Key 时，本地识别、情绪、敏感词和质检仍会正常完成，摘要区会显示可重试状态。
 
-可选本地模型依赖：
+SenseVoice 和 Emotion2Vec 在首次分析时按需加载，第一次运行会下载模型并耗时较长。`CALL_ASR_PREFERRED_DEVICE=auto` 会优先使用 CUDA，否则使用 CPU。
 
-```bash
-python -m pip install -e .[models]
-```
+## 启动前端
 
-`faster-whisper` Provider 已预留，后续可通过配置切换真实模型。CPU 环境默认可运行，检测到 CUDA 时可启用 GPU 加速配置。
-
-## 前端
-
-```bash
-cd call-asr-platform/frontend
+```powershell
+cd call-asr-platform\frontend
 npm install
-npm test
-npm run dev
+npm run dev -- --host 127.0.0.1 --port 5173
 ```
 
-打开 `http://127.0.0.1:5173`。
-
-如果端口 `8000` 或 `5173` 已被占用：
+打开 `http://127.0.0.1:5173`。若后端不是 `8000` 端口，在启动前设置：
 
 ```powershell
-cd call-asr-platform/backend
-python -m uvicorn app.main:app --host 127.0.0.1 --port 8022
-```
-
-```powershell
-cd call-asr-platform/frontend
 $env:VITE_API_BASE="http://127.0.0.1:8022"
-npm run dev -- --host 127.0.0.1 --port 5178
 ```
 
-## 敏感词性能基准
+## 测试
 
-```bash
-cd call-asr-platform/backend
-python scripts/bench_sensitive.py
+```powershell
+cd call-asr-platform\backend
+python -m pytest -q
 ```
 
-压测脚本会构建 100,000 条敏感词并扫描样本文本，用于验证 Aho-Corasick 风格扫描器的基本性能。
+```powershell
+cd call-asr-platform\frontend
+npm test
+npm run build
+```
 
-## 第一版说明
+## API
 
-- 敏感词按 `low`、`medium`、`high`、`critical` 分级，前端使用不同颜色高亮。
-- 实时接口支持 `speaker=sales/customer/unknown`，可模拟电话系统按销售和客户区分音频流。
-- 音频预处理目前是轻量 Provider 边界，已预留真实转码、VAD 和降噪接入点。
-- 翻译、情绪和摘要第一版使用规则/占位 Provider，接口保持稳定，便于替换为本地开源模型。
+- `POST /api/jobs/upload`：上传音频并创建任务
+- `POST /api/jobs/url`：根据文本框中的语音 URL 创建任务
+- `GET /api/jobs/{job_id}`：查询状态与进度
+- `GET /api/jobs/{job_id}/result`：获取分析结果
+- `GET /api/jobs/{job_id}/audio`：播放原始录音
+- `POST /api/jobs/{job_id}/retry-summary`：重新生成 DeepSeek 摘要
+
+旧的 `/api/sessions/offline` 和 `/api/sessions/url` 暂时保留为同步兼容接口，并返回 `Deprecation: true`。
+
+## 数据与安全
+
+任务音频保存在 `backend/data/jobs/`，默认保留 7 天。该目录、SQLite 数据库和 `.env` 都已加入 `.gitignore`。请勿把 DeepSeek API Key、客户录音或真实通话文本提交到 Git。
 
 ## 许可证
 

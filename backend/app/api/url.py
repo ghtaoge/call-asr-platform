@@ -1,73 +1,43 @@
-import httpx
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request, Response
 
-from app.core.config import get_settings
-from app.core.models import OfflineAnalysisResponse, UrlAnalysisRequest
-from app.sensitive.store import SensitiveStore
-from app.sessions.repository import SessionRepository
-from app.sessions.service import SessionService
+from app.core.models import CallSummary, OfflineAnalysisResponse, UrlAnalysisRequest
+from app.jobs.manager import JobManager, JobNotReadyError
+
 
 router = APIRouter(prefix="/api/sessions", tags=["url"])
 
-MAX_AUDIO_SIZE = 50 * 1024 * 1024  # 50MB
-DOWNLOAD_TIMEOUT = 30.0  # seconds
+
+def _manager(request: Request) -> JobManager:
+    manager = getattr(request.app.state, "job_manager", None)
+    if manager is None:
+        raise HTTPException(status_code=503, detail="分析服务尚未就绪")
+    return manager
 
 
-@router.post("/url", response_model=OfflineAnalysisResponse)
-async def create_url_session(request: UrlAnalysisRequest) -> OfflineAnalysisResponse:
-    # Validate URL format
-    if not request.audio_url.startswith(("http://", "https://")):
+@router.post("/url", response_model=OfflineAnalysisResponse, deprecated=True)
+async def create_url_session(
+    request: Request,
+    response: Response,
+    body: UrlAnalysisRequest,
+) -> OfflineAnalysisResponse:
+    if not body.audio_url.startswith(("http://", "https://")):
         raise HTTPException(status_code=400, detail="音频 URL 格式不合法")
 
-    # Download audio from remote URL with browser-like headers
-    # Some servers reject requests with non-browser User-Agent or unsupported
-    # Accept-Encoding (e.g. zstd), returning 406 Not Acceptable.
-    download_headers = {
-        "Accept": "*/*",
-        "Accept-Encoding": "gzip, deflate, br",
-        "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
-    }
+    manager = _manager(request)
+    job = await manager.create_url(body.audio_url)
+    await manager.wait(job.job_id)
     try:
-        async with httpx.AsyncClient(
-            timeout=DOWNLOAD_TIMEOUT,
-            follow_redirects=True,
-            headers=download_headers,
-        ) as client:
-            response = await client.get(request.audio_url)
-            response.raise_for_status()
-    except httpx.TimeoutException:
-        raise HTTPException(status_code=504, detail="下载音频文件超时")
-    except httpx.HTTPStatusError as exc:
-        raise HTTPException(
-            status_code=502,
-            detail=f"无法下载音频文件：远程服务器返回 {exc.response.status_code}",
-        )
-    except httpx.HTTPError:
-        raise HTTPException(status_code=502, detail="无法下载音频文件")
+        result = await manager.get_result(job.job_id)
+    except JobNotReadyError as exc:
+        status = await manager.get_status(job.job_id)
+        code = 400 if status.error_code in {"invalid_url", "blocked_url", "invalid_audio"} else 502
+        raise HTTPException(status_code=code, detail=status.error_message or "远程音频分析失败") from exc
 
-    audio = response.content
-
-    # Validate size
-    if len(audio) > MAX_AUDIO_SIZE:
-        raise HTTPException(status_code=413, detail="音频文件过大")
-
-    # Validate content type is audio-ish
-    content_type = response.headers.get("content-type", "")
-    if content_type and not any(
-        prefix in content_type for prefix in ("audio/", "application/octet-stream", "binary")
-    ):
-        raise HTTPException(status_code=400, detail="URL 返回的内容不是有效的音频文件")
-
-    # Reuse existing analysis pipeline
-    settings = get_settings()
-    sensitive_store = SensitiveStore(settings.sensitive_words_path)
-    sensitive_store.reload()
-    repository = SessionRepository(settings.database_path)
-    service = SessionService(repository, sensitive_store)
-    session_id, segments, quality, summary = await service.analyze_offline(
-        audio, settings.target_language
-    )
+    response.headers["Deprecation"] = "true"
+    response.headers["Link"] = '</api/jobs/url>; rel="successor-version"'
     return OfflineAnalysisResponse(
-        session_id=session_id, segments=segments, quality=quality, summary=summary
+        session_id=result.session_id,
+        segments=result.segments,
+        quality=result.quality,
+        summary=result.summary or CallSummary(),
     )

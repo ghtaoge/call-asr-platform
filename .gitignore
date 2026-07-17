@@ -2,7 +2,12 @@ backend/.pytest_cache/
 backend/.pytest-tmp/
 backend/**/__pycache__/
 backend/data/*.sqlite3
+backend/data/jobs/
+backend/.env
+.env
 backend/server.*.log
 frontend/dist/
 frontend/node_modules/
 frontend/server.*.log
+.playwright-cli/
+output/

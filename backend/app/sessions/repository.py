@@ -67,15 +67,24 @@ class SessionRepository:
 
     async def list_segments(self, session_id: str) -> list[Segment]:
         async with aiosqlite.connect(self._database_path) as db:
-            cursor = await db.execute("SELECT payload FROM segments WHERE session_id = ? ORDER BY id", (session_id,))
+            cursor = await db.execute("SELECT payload FROM segments WHERE session_id = ?", (session_id,))
             rows = await cursor.fetchall()
-        return [Segment.model_validate_json(row[0]) for row in rows]
+        segments = [Segment.model_validate_json(row[0]) for row in rows]
+        return sorted(segments, key=lambda item: (item.start_ms, item.end_ms, item.speaker.value))
 
     async def save_quality(self, session_id: str, quality: QualityScore) -> None:
         await self._save_artifact(session_id, "quality", quality.model_dump_json())
 
     async def save_summary(self, session_id: str, summary: CallSummary) -> None:
         await self._save_artifact(session_id, "summary", summary.model_dump_json())
+
+    async def get_quality(self, session_id: str) -> QualityScore | None:
+        payload = await self._get_artifact(session_id, "quality")
+        return QualityScore.model_validate_json(payload) if payload else None
+
+    async def get_summary(self, session_id: str) -> CallSummary | None:
+        payload = await self._get_artifact(session_id, "summary")
+        return CallSummary.model_validate_json(payload) if payload else None
 
     async def _save_artifact(self, session_id: str, kind: str, payload: str) -> None:
         async with aiosqlite.connect(self._database_path) as db:
@@ -84,3 +93,12 @@ class SessionRepository:
                 (session_id, kind, payload),
             )
             await db.commit()
+
+    async def _get_artifact(self, session_id: str, kind: str) -> str | None:
+        async with aiosqlite.connect(self._database_path) as db:
+            cursor = await db.execute(
+                "SELECT payload FROM artifacts WHERE session_id = ? AND kind = ?",
+                (session_id, kind),
+            )
+            row = await cursor.fetchone()
+        return row[0] if row else None

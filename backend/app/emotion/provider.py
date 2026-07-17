@@ -8,11 +8,11 @@ class RuleEmotionProvider:
         negative_words = ("不满", "失望", "难受", "拒绝")
         positive_words = ("满意", "可以", "谢谢", "不错")
         if any(word in text for word in angry_words):
-            return EmotionResult(label="angry", score=0.86)
+            return EmotionResult(label="angry", confidence=0.86, score=-0.86)
         if any(word in text for word in anxious_words):
-            return EmotionResult(label="anxious", score=0.78)
+            return EmotionResult(label="anxious", confidence=0.78, score=-0.62)
         if any(word in text for word in negative_words):
-            return EmotionResult(label="negative", score=0.74)
+            return EmotionResult(label="negative", confidence=0.74, score=-0.48)
         if any(word in text for word in positive_words):
-            return EmotionResult(label="positive", score=0.72)
-        return EmotionResult(label="neutral", score=0.62)
+            return EmotionResult(label="positive", confidence=0.72, score=0.72)
+        return EmotionResult(label="neutral", confidence=0.62, score=0.0)
