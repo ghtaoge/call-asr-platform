@@ -32,6 +32,11 @@ class Settings(BaseSettings):
         default=60.0,
         validation_alias=AliasChoices("DEEPSEEK_TIMEOUT_SECONDS", "CALL_ASR_DEEPSEEK_TIMEOUT_SECONDS"),
     )
+    cosyvoice_worker_url: str = "http://127.0.0.1:18081"
+    cosyvoice_worker_token: str | None = None
+    cosyvoice_timeout_seconds: float = 180.0
+    tts_retention_days: int = 7
+    tts_max_reference_bytes: int = 20 * 1024 * 1024
 
     model_config = SettingsConfigDict(env_prefix="CALL_ASR_", env_file=".env", extra="ignore")
 
@@ -49,6 +54,10 @@ class Settings(BaseSettings):
     @property
     def jobs_dir(self) -> Path:
         return self.data_dir / "jobs"
+
+    @property
+    def tts_dir(self) -> Path:
+        return self.data_dir / "tts"
 
 
 def get_settings() -> Settings:

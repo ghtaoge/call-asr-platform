@@ -1,8 +1,15 @@
+import json
 from pathlib import Path
 
 import aiosqlite
 
-from app.core.models import CallSummary, QualityScore, Segment
+from app.core.models import (
+    CallSummary,
+    EmotionResult,
+    QualityScore,
+    Segment,
+    SegmentRiskArtifact,
+)
 
 
 class SessionRepository:
@@ -71,6 +78,60 @@ class SessionRepository:
             rows = await cursor.fetchall()
         segments = [Segment.model_validate_json(row[0]) for row in rows]
         return sorted(segments, key=lambda item: (item.start_ms, item.end_ms, item.speaker.value))
+
+    async def save_emotions(
+        self,
+        session_id: str,
+        values: dict[str, EmotionResult],
+    ) -> None:
+        payload = {key: value.model_dump(mode="json") for key, value in values.items()}
+        await self._save_artifact(
+            session_id,
+            "emotions",
+            json.dumps(payload, ensure_ascii=False),
+        )
+
+    async def get_emotions(self, session_id: str) -> dict[str, EmotionResult]:
+        payload = await self._get_artifact(session_id, "emotions")
+        if not payload:
+            return {}
+        return {
+            key: EmotionResult.model_validate(value)
+            for key, value in json.loads(payload).items()
+        }
+
+    async def save_risks(
+        self,
+        session_id: str,
+        values: dict[str, SegmentRiskArtifact],
+    ) -> None:
+        payload = {key: value.model_dump(mode="json") for key, value in values.items()}
+        await self._save_artifact(
+            session_id,
+            "risks",
+            json.dumps(payload, ensure_ascii=False),
+        )
+
+    async def get_risks(self, session_id: str) -> dict[str, SegmentRiskArtifact]:
+        payload = await self._get_artifact(session_id, "risks")
+        if not payload:
+            return {}
+        return {
+            key: SegmentRiskArtifact.model_validate(value)
+            for key, value in json.loads(payload).items()
+        }
+
+    async def list_enriched_segments(self, session_id: str) -> list[Segment]:
+        segments = await self.list_segments(session_id)
+        emotions = await self.get_emotions(session_id)
+        risks = await self.get_risks(session_id)
+        for segment in segments:
+            if emotion := emotions.get(segment.id):
+                segment.emotion = emotion
+            if risk := risks.get(segment.id):
+                segment.sensitive_hits = risk.sensitive_hits
+                segment.compliance_hits = risk.compliance_hits
+        return segments
 
     async def save_quality(self, session_id: str, quality: QualityScore) -> None:
         await self._save_artifact(session_id, "quality", quality.model_dump_json())

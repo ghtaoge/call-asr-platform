@@ -1,23 +1,15 @@
 # Call ASR Platform
 
-面向销售和客服通话质检的本地优先语音分析平台。系统使用阿里开源模型完成双声道语音识别、说话人区分、标点与分段，并提供声学情绪曲线、分级敏感词、合规检查、通话质检和 DeepSeek 结构化摘要。
+面向销售和客服通话质检的本地优先语音分析平台。系统使用阿里开源 FunASR/ModelScope 模型完成离线和实时中文语音识别、标点分句、说话人区分及声学情绪识别，并提供敏感词、合规质检、DeepSeek 通话摘要和 CosyVoice 声音复刻。
 
 ## 主要能力
 
-- Paraformer-zh + FSMN-VAD + CT-Punc：中文语音识别、原生时间戳、分句和标点
-- 双声道角色区分：左声道为销售，右声道为客户
-- Emotion2Vec：逐时间段声学情绪分析，分别显示销售和客户曲线
-- 敏感词与合规规则：`low`、`medium`、`high`、`critical` 四级标记
-- DeepSeek 摘要：概述、客户诉求、销售承诺、风险、待办和下一步建议
-- 后台任务：上传或 URL 提交后异步处理，支持进度查询和失败恢复
-- 原始录音回放：支持 HTTP Range，点击语句或图表节点可跳转时间点
-- URL 安全下载：限制协议、重定向、文件大小，并阻止内网与本机地址
-
-## 音频要求
-
-角色区分依赖 Gooeto 双声道录音：第一声道为客户，第二声道为销售。单声道或多声道文件会返回 `unsupported_channel_layout`，不会猜测说话人身份。
-
-支持 FFmpeg 能解码的 WAV、MP3、M4A、AAC、FLAC、OGG 等常见格式。单个文件默认不超过 50 MB。
+- 离线分析：上传文件或填写音频 URL，先返回带时间戳的逐句通话内容，再异步计算情绪、风险、质检和摘要。
+- 实时识别：浏览器麦克风以 20 ms PCM 帧传输，实时展示临时文字、最终分句、时间点和风险标记。
+- 角色区分：Gooeto 双声道录音固定为第一/左声道客户、第二/右声道销售；实时单声道使用 CAM++ 聚类后由用户映射角色。
+- 播放联动：拖动音频进度条自动定位并滚动到最近的识别语句，录音结尾仍保留最后一句。
+- 独立分析模块：Emotion2Vec 情绪曲线、分级敏感词、合规规则、通话质检和 DeepSeek 摘要互不阻塞，失败模块可单独重试。
+- 语音合成：上传 3 到 30 秒参考音频并确认授权，使用独立 CosyVoice 工作进程合成、播放和下载音频。
 
 ## 启动后端
 
@@ -27,12 +19,11 @@ python -m venv .venv
 .venv\Scripts\Activate.ps1
 python -m pip install -e ".[test]"
 Copy-Item ..\.env.example .env
+python scripts\download_realtime_models.py
 python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
 ```
 
-在 `backend/.env` 中设置 `DEEPSEEK_API_KEY` 后才会生成智能摘要。没有 Key 时，本地识别、情绪、敏感词和质检仍会正常完成，摘要区会显示可重试状态。
-
-Paraformer 和 Emotion2Vec 在首次分析时按需加载，第一次运行会下载模型并耗时较长。`CALL_ASR_PREFERRED_DEVICE=auto` 会优先使用 CUDA，否则使用 CPU。
+首次使用模型时会下载较大文件。`CALL_ASR_PREFERRED_DEVICE=auto` 优先使用 CUDA，否则使用 CPU。`backend/.env` 中配置 `DEEPSEEK_API_KEY` 后才会生成智能摘要；未配置不会影响转写和其他分析模块。
 
 ## 启动前端
 
@@ -42,39 +33,42 @@ npm install
 npm run dev -- --host 127.0.0.1 --port 5173
 ```
 
-打开 `http://127.0.0.1:5173`。若后端不是 `8000` 端口，在启动前设置：
+打开 `http://127.0.0.1:5173`。浏览器麦克风要求安全上下文，`localhost` 和 `127.0.0.1` 可直接使用。
+
+## 启动 CosyVoice
+
+CosyVoice 使用独立 Python 3.10 Conda 环境，避免其依赖与主后端冲突。机器需要先安装 Git、Conda 和可用的模型运行环境。
 
 ```powershell
-$env:VITE_API_BASE="http://127.0.0.1:8022"
+cd call-asr-platform\backend
+.\scripts\setup_cosyvoice.ps1
+$env:COSYVOICE_WORKER_TOKEN="请设置随机令牌"
+$env:CALL_ASR_COSYVOICE_WORKER_TOKEN=$env:COSYVOICE_WORKER_TOKEN
+.\scripts\start_cosyvoice.ps1
 ```
+
+工作进程默认监听 `127.0.0.1:18081`。令牌必须与主后端 `.env` 中的 `CALL_ASR_COSYVOICE_WORKER_TOKEN` 一致。详细步骤见 [部署文档](docs/DEPLOYMENT.md)。
 
 ## 测试
 
 ```powershell
 cd call-asr-platform\backend
 python -m pytest -q
-```
 
-```powershell
-cd call-asr-platform\frontend
-npm test
+cd ..\frontend
+npm test -- --run
 npm run build
 ```
 
-## API
-
-- `POST /api/jobs/upload`：上传音频并创建任务
-- `POST /api/jobs/url`：根据文本框中的语音 URL 创建任务
-- `GET /api/jobs/{job_id}`：查询状态与进度
-- `GET /api/jobs/{job_id}/result`：获取分析结果
-- `GET /api/jobs/{job_id}/audio`：播放原始录音
-- `POST /api/jobs/{job_id}/retry-summary`：重新生成 DeepSeek 摘要
-
-旧的 `/api/sessions/offline` 和 `/api/sessions/url` 暂时保留为同步兼容接口，并返回 `Deprecation: true`。
-
 ## 数据与安全
 
-任务音频保存在 `backend/data/jobs/`，默认保留 7 天。该目录、SQLite 数据库和 `.env` 都已加入 `.gitignore`。请勿把 DeepSeek API Key、客户录音或真实通话文本提交到 Git。
+任务音频、实时录音、临时音色和合成音频默认保留 7 天，保存在 `backend/data/`，不会提交到 Git。请勿提交 `.env`、DeepSeek API Key、客户录音或真实通话文本。TTS 音色只用于用户明确授权的声音。
+
+## 文档
+
+- [API 参考](docs/API.md)
+- [系统架构](docs/ARCHITECTURE.md)
+- [部署说明](docs/DEPLOYMENT.md)
 
 ## 许可证
 

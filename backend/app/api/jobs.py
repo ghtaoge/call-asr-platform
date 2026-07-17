@@ -1,9 +1,8 @@
-import re
-from collections.abc import Iterator
 from pathlib import Path
+from typing import Literal
 
 from fastapi import APIRouter, File, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, StreamingResponse
+from app.audio.responses import audio_file_response
 
 from app.core.config import get_settings
 from app.jobs.manager import JobManager, JobNotReadyError
@@ -17,7 +16,6 @@ from app.jobs.storage import AudioTooLargeError
 
 
 router = APIRouter(prefix="/api/jobs", tags=["jobs"])
-RANGE_PATTERN = re.compile(r"^bytes=(\d*)-(\d*)$")
 
 
 def _manager(request: Request) -> JobManager:
@@ -77,6 +75,23 @@ async def retry_summary(request: Request, job_id: str) -> JobStatusResponse:
         raise HTTPException(status_code=409, detail="当前状态不能重新生成摘要") from exc
 
 
+RetryModule = Literal["emotion", "risk", "quality", "summary"]
+
+
+@router.post("/{job_id}/retry/{module}", response_model=JobStatusResponse, status_code=202)
+async def retry_module(
+    request: Request,
+    job_id: str,
+    module: RetryModule,
+) -> JobStatusResponse:
+    try:
+        return await _manager(request).retry_module(job_id, module)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="任务不存在") from exc
+    except JobNotReadyError as exc:
+        raise HTTPException(status_code=409, detail="当前模块状态不能重新分析") from exc
+
+
 @router.get("/{job_id}/audio")
 async def get_job_audio(request: Request, job_id: str):
     try:
@@ -88,51 +103,8 @@ async def get_job_audio(request: Request, job_id: str):
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail="任务音频已过期") from exc
 
-    range_header = request.headers.get("range")
-    if not range_header:
-        return FileResponse(path, media_type=content_type, headers={"Accept-Ranges": "bytes"})
-    start, end = _parse_range(range_header, path.stat().st_size)
-    length = end - start + 1
-    return StreamingResponse(
-        _file_range(path, start, length),
-        status_code=206,
-        media_type=content_type,
-        headers={
-            "Accept-Ranges": "bytes",
-            "Content-Range": f"bytes {start}-{end}/{path.stat().st_size}",
-            "Content-Length": str(length),
-        },
+    return audio_file_response(
+        path,
+        content_type,
+        request.headers.get("range"),
     )
-
-
-def _parse_range(value: str, size: int) -> tuple[int, int]:
-    match = RANGE_PATTERN.fullmatch(value.strip())
-    if not match or size <= 0:
-        raise HTTPException(status_code=416, detail="无效的音频范围")
-    raw_start, raw_end = match.groups()
-    if not raw_start and not raw_end:
-        raise HTTPException(status_code=416, detail="无效的音频范围")
-    if not raw_start:
-        suffix = int(raw_end)
-        if suffix <= 0:
-            raise HTTPException(status_code=416, detail="无效的音频范围")
-        start = max(0, size - suffix)
-        end = size - 1
-    else:
-        start = int(raw_start)
-        end = int(raw_end) if raw_end else size - 1
-    if start >= size or end < start:
-        raise HTTPException(status_code=416, detail="无效的音频范围")
-    return start, min(end, size - 1)
-
-
-def _file_range(path: Path, start: int, length: int) -> Iterator[bytes]:
-    remaining = length
-    with path.open("rb") as source:
-        source.seek(start)
-        while remaining:
-            chunk = source.read(min(64 * 1024, remaining))
-            if not chunk:
-                break
-            remaining -= len(chunk)
-            yield chunk

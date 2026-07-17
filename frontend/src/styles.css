@@ -38,6 +38,49 @@ h1, h2, h3, p { margin: 0; }
 .secondaryButton:hover:not(.disabled) { border-color: #12735a; color: #12735a; }
 .primaryButton:disabled, .secondaryButton.disabled { opacity: .55; cursor: not-allowed; }
 .secondaryButton input { display: none; }
+.modeSwitcher { min-height: 46px; padding: 6px 24px; display: flex; align-items: center; gap: 4px; background: #fff; border-bottom: 1px solid #dbe3e8; }
+.modeSwitcher button { min-width: 116px; height: 34px; padding: 0 13px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: #60717c; cursor: pointer; }
+.modeSwitcher button.active { border-bottom-color: #12735a; color: #0d654f; font-weight: 700; }
+.modeSwitcher button:disabled { opacity: .45; cursor: not-allowed; }
+
+.realtimeWorkspace { padding: 14px 18px 24px; display: grid; gap: 12px; }
+.realtimeControls { min-height: 62px; padding: 10px 14px; display: flex; align-items: center; gap: 16px; background: #fff; border: 1px solid #d7e0e5; border-radius: 6px; }
+.realtimeStatus { min-width: 190px; display: flex; align-items: center; gap: 9px; color: #12735a; }
+.realtimeStatus div { display: grid; gap: 3px; }
+.realtimeStatus span { color: #71808a; font-size: 11px; }
+.levelMeter { width: min(320px, 30vw); height: 7px; overflow: hidden; background: #e1e7ea; border-radius: 4px; }
+.levelMeter span { display: block; height: 100%; background: #16835f; transition: width .08s linear; }
+.realtimeControls > time { color: #40515c; font-variant-numeric: tabular-nums; font-weight: 700; }
+.recordActions { margin-left: auto; display: flex; gap: 7px; }
+.recordActions button { height: 36px; min-width: 40px; padding: 0 11px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; border: 1px solid #b9c7d0; background: #fff; cursor: pointer; }
+.recordActions .recordButton { border-color: #12735a; background: #12735a; color: #fff; }
+.recordActions .stopButton { border-color: #c74438; color: #ad3128; }
+.speakerMapping { min-height: 48px; padding: 8px 14px; display: flex; align-items: center; gap: 12px; background: #fff; border: 1px solid #d7e0e5; border-radius: 6px; }
+.speakerMapping label { margin-left: 8px; display: flex; align-items: center; gap: 7px; color: #5f707b; font-size: 13px; }
+.speakerMapping select { height: 32px; min-width: 92px; border: 1px solid #c3cfd6; background: #fff; }
+.realtimeTranscript { min-height: 430px; }
+.realtimeSegment { min-height: 66px; padding: 12px 14px; display: grid; grid-template-columns: 72px minmax(0, 1fr) 110px; gap: 12px; align-items: start; border-bottom: 1px solid #edf1f3; }
+.realtimeSegment p { line-height: 1.7; }
+.realtimeSegment time { color: #7b8992; font-size: 12px; text-align: right; }
+.partialTranscript { min-height: 62px; padding: 12px 14px; display: grid; grid-template-columns: 72px minmax(0, 1fr); gap: 12px; color: #63747f; background: #f5f8f9; border-left: 3px solid #8ba59d; }
+.partialTranscript span { font-size: 12px; }
+.partialTranscript p { line-height: 1.7; }
+.ttsWorkspace { margin: 14px 18px 24px; background: #fff; border: 1px solid #d7e0e5; border-radius: 6px; }
+.ttsHeader { min-height: 62px; padding: 12px 16px; display: flex; align-items: center; gap: 10px; border-bottom: 1px solid #e7ecef; }
+.ttsHeader h2 { font-size: 17px; }
+.ttsHeader p { margin-top: 4px; color: #71808a; font-size: 12px; }
+.ttsForm { max-width: 920px; padding: 18px; display: grid; gap: 13px; }
+.ttsTextLabel { display: grid; gap: 7px; color: #40515c; font-weight: 700; font-size: 13px; }
+.ttsTextLabel textarea { width: 100%; min-height: 160px; resize: vertical; padding: 12px; border: 1px solid #b9c7d0; border-radius: 5px; line-height: 1.7; }
+.voiceReference { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.consentCheck { display: inline-flex; align-items: center; gap: 7px; color: #4f616c; font-size: 13px; }
+.voiceReady { padding: 4px 8px; color: #0d654f; background: #e5f5ef; border-radius: 4px; font-size: 12px; }
+.ttsHint, .promptText { color: #70808a; font-size: 12px; }
+.ttsError { color: #a12828; font-size: 13px; }
+.ttsSubmit { width: fit-content; }
+.ttsResult { padding: 16px 18px; display: flex; align-items: center; gap: 12px; border-top: 1px solid #e7ecef; }
+.ttsResult audio { width: min(620px, 100%); }
+.ttsResult a { text-decoration: none; }
 
 .jobProgress { min-height: 52px; padding: 9px 24px; display: flex; align-items: center; gap: 11px; color: #175d4b; background: #edf8f4; border-bottom: 1px solid #cce7de; }
 .jobProgress.failed { color: #a12828; background: #fff1f0; border-color: #f1ceca; }
@@ -83,6 +126,7 @@ h1, h2, h3, p { margin: 0; }
 .emotionTag.positive { color: #08704d; background: #e3f6ee; }
 .emotionTag.negative, .emotionTag.angry, .emotionTag.anxious { color: #9a392c; background: #fff0ed; }
 .timeTag { display: inline-flex; align-items: center; gap: 4px; color: #7b8992; white-space: nowrap; font-size: 12px; }
+.sentenceTtsButton { width: 30px; height: 28px; display: inline-grid; place-items: center; border: 1px solid #c8d3d9; background: #fff; color: #17634f; cursor: pointer; }
 mark { padding: 1px 2px; border-radius: 2px; color: inherit; }
 .hit-low { background: #fff1a8; }
 .hit-medium { background: #ffd48a; }
@@ -124,6 +168,11 @@ mark { padding: 1px 2px; border-radius: 2px; color: inherit; }
 .summaryGroup ul { margin: 6px 0 0; padding-left: 18px; line-height: 1.55; font-size: 13px; }
 .summaryGroup p { margin-top: 5px; color: #89959d; font-size: 12px; }
 .summaryFailure { margin-top: 12px; padding: 10px; color: #96372c; background: #fff3f1; font-size: 13px; }
+.moduleState { min-height: 96px; padding: 18px; display: flex; align-items: center; gap: 12px; border: 1px solid #dbe3e8; background: #fff; color: #52606d; }
+.moduleState > div { flex: 1; min-width: 0; }
+.moduleState strong { color: #243746; }
+.moduleState p { margin: 4px 0 0; font-size: 13px; }
+.moduleState button { min-height: 34px; padding: 0 12px; display: inline-flex; align-items: center; gap: 6px; border: 1px solid #b9c7d0; background: #fff; color: #1f5f8b; cursor: pointer; }
 .initialState { min-height: calc(100vh - 90px); display: flex; flex-direction: column; align-items: center; justify-content: center; color: #71808a; }
 .initialState svg { color: #12735a; }
 .initialState h2 { margin-top: 15px; color: #354650; font-size: 18px; }
@@ -151,4 +200,13 @@ mark { padding: 1px 2px; border-radius: 2px; color: inherit; }
   .jobProgress { padding-inline: 14px; }
   .jobProgressText { min-width: 0; }
   .progressTrack { display: none; }
+  .realtimeWorkspace { min-width: 0; padding: 14px 10px 24px; }
+  .realtimeControls { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 9px; }
+  .realtimeStatus { min-width: 0; }
+  .levelMeter { grid-column: 1 / -1; grid-row: 2; width: 100%; }
+  .recordActions { margin-left: 0; }
+  .speakerMapping { min-width: 0; display: grid; grid-template-columns: auto minmax(0, 1fr); }
+  .speakerMapping label { grid-column: 1 / -1; width: 100%; margin-left: 0; justify-content: space-between; }
+  .realtimeSegment { grid-template-columns: 58px minmax(0, 1fr); }
+  .realtimeSegment time { grid-column: 2; text-align: left; }
 }

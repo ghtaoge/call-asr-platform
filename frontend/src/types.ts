@@ -12,7 +12,13 @@ export type JobStage =
   | "generating_summary"
   | "completed"
   | "failed";
-export type SummaryStatus = "pending" | "running" | "completed" | "failed";
+export type ModuleStatus = "pending" | "running" | "completed" | "failed";
+export type SummaryStatus = ModuleStatus;
+
+export interface ModuleError {
+  code: string;
+  message: string;
+}
 
 export interface SensitiveHit {
   word: string;
@@ -39,6 +45,7 @@ export interface Segment {
   id: string;
   session_id: string;
   speaker: Speaker;
+  speaker_cluster?: "speaker_1" | "speaker_2";
   start_ms: number;
   end_ms: number;
   text: string;
@@ -82,7 +89,12 @@ export interface JobCreateResponse {
 }
 
 export interface JobStatusResponse extends JobCreateResponse {
+  transcript_status: ModuleStatus;
+  emotion_status: ModuleStatus;
+  risk_status: ModuleStatus;
+  quality_status: ModuleStatus;
   summary_status: SummaryStatus;
+  module_errors: Record<string, ModuleError>;
   error_code?: string;
   error_message?: string;
 }
@@ -90,9 +102,29 @@ export interface JobStatusResponse extends JobCreateResponse {
 export interface AnalysisResult {
   job_id: string;
   session_id: string;
+  transcript_status: ModuleStatus;
+  emotion_status: ModuleStatus;
+  risk_status: ModuleStatus;
+  quality_status: ModuleStatus;
   summary_status: SummaryStatus;
-  summary_error_code?: string;
+  module_errors: Record<string, ModuleError>;
   segments: Segment[];
-  quality: QualityScore;
+  quality?: QualityScore;
   summary?: CallSummary;
+}
+
+export type TtsJobStatus = "queued" | "running" | "completed" | "failed" | "expired";
+
+export interface TtsVoiceResponse {
+  voice_id: string;
+  prompt_text: string;
+  expires_at: string;
+}
+
+export interface TtsJobResponse {
+  job_id: string;
+  voice_id: string;
+  status: TtsJobStatus;
+  error_code?: string;
+  error_message?: string;
 }

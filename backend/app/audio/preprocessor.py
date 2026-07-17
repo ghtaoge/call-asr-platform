@@ -16,8 +16,8 @@ class AudioProcessingResult:
 @dataclass(frozen=True)
 class ChannelSplitResult:
     """Result of splitting a stereo audio into left and right channels."""
-    left: bytes   # Left channel (sales) as WAV bytes
-    right: bytes  # Right channel (customer) as WAV bytes
+    left: bytes   # Gooeto first/left channel (customer), encoded as mono WAV
+    right: bytes  # Gooeto second/right channel (sales), encoded as mono WAV
     is_stereo: bool
     original: bytes  # Original audio bytes (used if mono)
 
@@ -35,7 +35,7 @@ class AudioPreprocessor:
         return AudioProcessingResult(audio=audio, silence_ratio=silence_ratio, noise_level=noise_level)
 
     def split_channels(self, audio_bytes: bytes) -> ChannelSplitResult:
-        """Split stereo audio into left (sales) and right (customer) channels.
+        """Split stereo audio into left (customer) and right (sales) channels.
 
         If the audio is mono, returns the original bytes for both channels.
         Uses PyAV (av library) which doesn't require external ffmpeg binary.
@@ -119,6 +119,31 @@ class AudioPreprocessor:
                 os.unlink(tmp.name)
             except OSError:
                 pass
+
+    def normalize_mono_wav(self, audio_bytes: bytes) -> bytes:
+        import av
+        import numpy as np
+
+        source = av.open(io.BytesIO(audio_bytes))
+        resampler = av.AudioResampler(format="s16", layout="mono", rate=16_000)
+        chunks: list[np.ndarray] = []
+        try:
+            for frame in source.decode(audio=0):
+                converted = resampler.resample(frame)
+                converted_frames = converted if isinstance(converted, list) else [converted]
+                for item in converted_frames:
+                    if item is not None:
+                        chunks.append(item.to_ndarray().astype(np.int16).reshape(-1))
+            flushed = resampler.resample(None)
+            flushed_frames = flushed if isinstance(flushed, list) else [flushed]
+            for item in flushed_frames:
+                if item is not None:
+                    chunks.append(item.to_ndarray().astype(np.int16).reshape(-1))
+        finally:
+            source.close()
+        if not chunks:
+            raise ValueError("参考音频中没有有效人声数据")
+        return self._to_wav_bytes(np.concatenate(chunks).astype(np.float32) / 32768.0, 16_000)
 
     def split_required_stereo(self, audio_bytes: bytes) -> ChannelSplitResult:
         result = self.split_channels(audio_bytes)

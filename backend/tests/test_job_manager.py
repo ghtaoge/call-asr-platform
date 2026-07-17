@@ -1,17 +1,24 @@
 import asyncio
 
-from app.core.models import CallSummary, EmotionResult, QualityScore, Segment, Speaker
+from app.core.models import (
+    CallSummary,
+    EmotionResult,
+    QualityScore,
+    Segment,
+    SegmentRiskArtifact,
+    Speaker,
+)
 from app.jobs.manager import JobManager
-from app.jobs.models import JobStage, JobStatus, SummaryStatus
+from app.jobs.models import JobStage, JobStatus, ModuleStatus, SummaryStatus
 from app.jobs.repository import JobRepository
 from app.jobs.storage import JobStorage
-from app.sessions.pipeline import LocalAnalysisResult
+from app.sessions.pipeline import TranscriptionResult
 from app.sessions.repository import SessionRepository
 from app.summary.deepseek import SummaryError
 
 
 class FakePipeline:
-    def run(self, audio, session_id, progress):
+    def transcribe(self, audio, session_id, progress):
         progress(JobStage.transcribing_sales, 15)
         segment = Segment(
             id=f"{session_id}_s1",
@@ -20,9 +27,25 @@ class FakePipeline:
             start_ms=0,
             end_ms=1000,
             text="您好。",
-            emotion=EmotionResult(label="neutral", confidence=0.9, score=0),
         )
-        quality = QualityScore(
+        return TranscriptionResult(
+            segments=[segment],
+            channel_audio={Speaker.sales: b"audio"},
+            silence_ratio=0.1,
+            noise_level="low",
+        )
+
+    def analyze_emotion(self, transcription):
+        return {
+            segment.id: EmotionResult(label="neutral", confidence=0.9, score=0)
+            for segment in transcription.segments
+        }
+
+    def scan_risks(self, segments):
+        return {segment.id: SegmentRiskArtifact() for segment in segments}
+
+    def score_quality(self, transcription, segments):
+        return QualityScore(
             score=90,
             noise_level="low",
             silence_ratio=0.1,
@@ -33,7 +56,14 @@ class FakePipeline:
             risk_hit_count=0,
             suggestions=[],
         )
-        return LocalAnalysisResult([segment], quality)
+
+    def restore_transcription(self, audio, segments):
+        return TranscriptionResult(
+            segments=segments,
+            channel_audio={Speaker.sales: audio},
+            silence_ratio=0.1,
+            noise_level="low",
+        )
 
 
 class FakeSummary:
@@ -107,11 +137,44 @@ async def test_local_result_is_available_while_summary_is_still_running(tmp_path
 
     await asyncio.wait_for(summary.started.wait(), timeout=2)
     status = await jobs.require(job.job_id)
-    assert status.status == JobStatus.completed
+    assert status.status == JobStatus.running
+    assert status.transcript_status == ModuleStatus.completed
     assert status.summary_status == SummaryStatus.running
     assert (await manager.get_result(job.job_id)).segments
 
     summary.release.set()
     await manager.wait(job.job_id)
     assert (await jobs.require(job.job_id)).summary_status == SummaryStatus.completed
+    await manager.close()
+
+
+async def test_transcript_is_available_while_emotion_is_blocked(tmp_path):
+    manager, jobs = await build_manager(tmp_path, FakeSummary())
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    original = manager.pipeline.analyze_emotion
+
+    def blocking_emotion(transcription):
+        loop = asyncio.run_coroutine_threadsafe(started_set(), event_loop)
+        loop.result()
+        future = asyncio.run_coroutine_threadsafe(release.wait(), event_loop)
+        future.result(timeout=2)
+        return original(transcription)
+
+    async def started_set():
+        started.set()
+
+    event_loop = asyncio.get_running_loop()
+    manager.pipeline.analyze_emotion = blocking_emotion
+    job = await manager.create_upload(b"audio", "audio/wav")
+
+    await asyncio.wait_for(started.wait(), timeout=2)
+    status = await jobs.require(job.job_id)
+    assert status.transcript_status == ModuleStatus.completed
+    assert status.emotion_status == ModuleStatus.running
+    assert (await manager.get_result(job.job_id)).segments[0].text == "您好。"
+
+    release.set()
+    await manager.wait(job.job_id)
     await manager.close()

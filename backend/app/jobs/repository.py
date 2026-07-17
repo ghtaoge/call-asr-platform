@@ -3,7 +3,7 @@ from pathlib import Path
 
 import aiosqlite
 
-from app.jobs.models import JobRecord, JobStage, JobStatus, SummaryStatus
+from app.jobs.models import JobRecord, JobStage, JobStatus, ModuleError, ModuleStatus
 
 
 CREATE_JOBS_SQL = """
@@ -17,6 +17,10 @@ CREATE TABLE IF NOT EXISTS jobs (
     status TEXT NOT NULL,
     stage TEXT NOT NULL,
     progress INTEGER NOT NULL,
+    transcript_status TEXT NOT NULL DEFAULT 'pending',
+    emotion_status TEXT NOT NULL DEFAULT 'pending',
+    risk_status TEXT NOT NULL DEFAULT 'pending',
+    quality_status TEXT NOT NULL DEFAULT 'pending',
     summary_status TEXT NOT NULL,
     error_code TEXT,
     error_message TEXT,
@@ -24,6 +28,24 @@ CREATE TABLE IF NOT EXISTS jobs (
     updated_at TEXT NOT NULL
 )
 """
+
+CREATE_MODULE_ERRORS_SQL = """
+CREATE TABLE IF NOT EXISTS job_module_errors (
+    job_id TEXT NOT NULL,
+    module TEXT NOT NULL,
+    code TEXT NOT NULL,
+    message TEXT NOT NULL,
+    PRIMARY KEY (job_id, module)
+)
+"""
+
+MODULE_COLUMNS = {
+    "transcript": "transcript_status",
+    "emotion": "emotion_status",
+    "risk": "risk_status",
+    "quality": "quality_status",
+    "summary": "summary_status",
+}
 
 
 class JobRepository:
@@ -34,6 +56,33 @@ class JobRepository:
     async def init(self) -> None:
         async with aiosqlite.connect(self._database_path) as db:
             await db.execute(CREATE_JOBS_SQL)
+            rows = await (await db.execute("PRAGMA table_info(jobs)")).fetchall()
+            existing = {row[1] for row in rows}
+            added_module_columns = False
+            for column in (
+                "transcript_status",
+                "emotion_status",
+                "risk_status",
+                "quality_status",
+            ):
+                if column not in existing:
+                    added_module_columns = True
+                    await db.execute(
+                        f"ALTER TABLE jobs ADD COLUMN {column} "
+                        "TEXT NOT NULL DEFAULT 'pending'"
+                    )
+            if added_module_columns:
+                await db.execute(
+                    """
+                    UPDATE jobs
+                    SET transcript_status = 'completed',
+                        emotion_status = 'completed',
+                        risk_status = 'completed',
+                        quality_status = 'completed'
+                    WHERE status = 'completed'
+                    """
+                )
+            await db.execute(CREATE_MODULE_ERRORS_SQL)
             await db.commit()
 
     async def create(
@@ -55,7 +104,7 @@ class JobRepository:
                 (
                     job_id, session_id, source_type, source_url,
                     JobStatus.queued.value, JobStage.queued.value, 0,
-                    SummaryStatus.pending.value, now, now,
+                    ModuleStatus.pending.value, now, now,
                 ),
             )
             await db.commit()
@@ -70,6 +119,7 @@ class JobRepository:
             return None
         payload = dict(row)
         payload["job_id"] = payload.pop("id")
+        payload["module_errors"] = await self.get_module_errors(job_id)
         return JobRecord.model_validate(payload)
 
     async def require(self, job_id: str) -> JobRecord:
@@ -108,19 +158,53 @@ class JobRepository:
             error_message=message,
         )
 
-    async def set_summary_status(
+    async def set_module_status(
         self,
         job_id: str,
-        status: SummaryStatus,
+        module: str,
+        status: ModuleStatus,
         error_code: str | None = None,
         error_message: str | None = None,
     ) -> None:
-        await self._update(
-            job_id,
-            summary_status=status.value,
-            error_code=error_code,
-            error_message=error_message,
-        )
+        column = MODULE_COLUMNS.get(module)
+        if column is None:
+            raise ValueError(f"unsupported analysis module: {module}")
+        await self._update(job_id, **{column: status.value})
+        async with aiosqlite.connect(self._database_path) as db:
+            if status == ModuleStatus.failed and error_code and error_message:
+                await db.execute(
+                    """
+                    INSERT INTO job_module_errors (job_id, module, code, message)
+                    VALUES (?, ?, ?, ?)
+                    ON CONFLICT(job_id, module) DO UPDATE SET
+                        code = excluded.code, message = excluded.message
+                    """,
+                    (job_id, module, error_code, error_message),
+                )
+            else:
+                await db.execute(
+                    "DELETE FROM job_module_errors WHERE job_id = ? AND module = ?",
+                    (job_id, module),
+                )
+            await db.commit()
+
+    async def set_summary_status(
+        self,
+        job_id: str,
+        status: ModuleStatus,
+        error_code: str | None = None,
+        error_message: str | None = None,
+    ) -> None:
+        await self.set_module_status(job_id, "summary", status, error_code, error_message)
+
+    async def get_module_errors(self, job_id: str) -> dict[str, ModuleError]:
+        async with aiosqlite.connect(self._database_path) as db:
+            cursor = await db.execute(
+                "SELECT module, code, message FROM job_module_errors WHERE job_id = ?",
+                (job_id,),
+            )
+            rows = await cursor.fetchall()
+        return {row[0]: ModuleError(code=row[1], message=row[2]) for row in rows}
 
     async def mark_running_interrupted(self) -> int:
         now = datetime.now(UTC).isoformat()
@@ -144,6 +228,7 @@ class JobRepository:
 
     async def delete(self, job_id: str) -> None:
         async with aiosqlite.connect(self._database_path) as db:
+            await db.execute("DELETE FROM job_module_errors WHERE job_id = ?", (job_id,))
             await db.execute("DELETE FROM jobs WHERE id = ?", (job_id,))
             await db.commit()
 

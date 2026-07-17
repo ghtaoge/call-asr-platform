@@ -3,9 +3,13 @@ backend/.pytest-tmp/
 backend/**/__pycache__/
 backend/data/*.sqlite3
 backend/data/jobs/
+backend/data/realtime/
+backend/data/tts/
+backend/vendor/CosyVoice/
 backend/.env
 .env
 backend/server.*.log
+backend/runtime.*.log
 frontend/dist/
 frontend/node_modules/
 frontend/server.*.log

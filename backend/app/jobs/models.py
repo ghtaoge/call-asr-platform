@@ -26,11 +26,20 @@ class JobStage(StrEnum):
     failed = "failed"
 
 
-class SummaryStatus(StrEnum):
+class ModuleStatus(StrEnum):
     pending = "pending"
     running = "running"
     completed = "completed"
     failed = "failed"
+
+
+# Backward-compatible import name for callers that only manage summaries.
+SummaryStatus = ModuleStatus
+
+
+class ModuleError(BaseModel):
+    code: str
+    message: str
 
 
 class JobCreateResponse(BaseModel):
@@ -42,7 +51,12 @@ class JobCreateResponse(BaseModel):
 
 
 class JobStatusResponse(JobCreateResponse):
-    summary_status: SummaryStatus
+    transcript_status: ModuleStatus = ModuleStatus.pending
+    emotion_status: ModuleStatus = ModuleStatus.pending
+    risk_status: ModuleStatus = ModuleStatus.pending
+    quality_status: ModuleStatus = ModuleStatus.pending
+    summary_status: ModuleStatus = ModuleStatus.pending
+    module_errors: dict[str, ModuleError] = Field(default_factory=dict)
     error_code: str | None = None
     error_message: str | None = None
 
@@ -59,10 +73,14 @@ class JobRecord(JobStatusResponse):
 class JobAnalysisResponse(BaseModel):
     job_id: str
     session_id: str
-    summary_status: SummaryStatus
-    summary_error_code: str | None = None
+    transcript_status: ModuleStatus = ModuleStatus.completed
+    emotion_status: ModuleStatus = ModuleStatus.completed
+    risk_status: ModuleStatus = ModuleStatus.completed
+    quality_status: ModuleStatus = ModuleStatus.completed
+    summary_status: ModuleStatus = ModuleStatus.completed
+    module_errors: dict[str, ModuleError] = Field(default_factory=dict)
     segments: list[Segment]
-    quality: QualityScore
+    quality: QualityScore | None = None
     summary: CallSummary | None = None
 
 

@@ -4,7 +4,13 @@ from dataclasses import dataclass
 from app.asr.sensevoice_provider import SenseVoiceProvider
 from app.audio.preprocessor import AudioPreprocessor
 from app.compliance.rules import ComplianceRuleEngine
-from app.core.models import QualityScore, Segment, Speaker
+from app.core.models import (
+    EmotionResult,
+    QualityScore,
+    Segment,
+    SegmentRiskArtifact,
+    Speaker,
+)
 from app.emotion.acoustic_provider import AcousticEmotionProvider
 from app.jobs.models import JobStage
 from app.quality.scoring import QualityScorer
@@ -25,6 +31,14 @@ class AnalysisPipelineError(RuntimeError):
 class LocalAnalysisResult:
     segments: list[Segment]
     quality: QualityScore
+
+
+@dataclass(frozen=True)
+class TranscriptionResult:
+    segments: list[Segment]
+    channel_audio: dict[Speaker, bytes]
+    silence_ratio: float
+    noise_level: str
 
 
 def merge_channel_segments(sales: list[Segment], customer: list[Segment]) -> list[Segment]:
@@ -57,6 +71,25 @@ class AnalysisPipeline:
         session_id: str,
         progress: ProgressCallback,
     ) -> LocalAnalysisResult:
+        transcription = self.transcribe(audio_bytes, session_id, progress)
+        progress(JobStage.analyzing_emotion, 72)
+        emotions = self.analyze_emotion(transcription)
+        progress(JobStage.scanning_risks, 82)
+        risks = self.scan_risks(transcription.segments)
+        for segment in transcription.segments:
+            segment.emotion = emotions[segment.id]
+            risk = risks[segment.id]
+            segment.sensitive_hits = risk.sensitive_hits
+            segment.compliance_hits = risk.compliance_hits
+        quality = self.score_quality(transcription, transcription.segments)
+        return LocalAnalysisResult(transcription.segments, quality)
+
+    def transcribe(
+        self,
+        audio_bytes: bytes,
+        session_id: str,
+        progress: ProgressCallback,
+    ) -> TranscriptionResult:
         progress(JobStage.preparing_audio, 5)
         channels = self.audio.split_required_stereo(audio_bytes)
 
@@ -77,37 +110,99 @@ class AnalysisPipeline:
         segments = merge_channel_segments(sales, customer)
         if not segments:
             raise AnalysisPipelineError("asr_failed", "录音中未识别到有效语音")
-        # 每个句子的时间戳只对其原始声道有效。情绪切片必须回到对应声道，
-        # 不能在双声道混音上按同一时间切片，否则另一方声音会污染判断。
-        channel_audio = {Speaker.sales: channels.right, Speaker.customer: channels.left}
+        processed = self.audio.process(audio_bytes)
+        return TranscriptionResult(
+            segments=segments,
+            channel_audio={Speaker.sales: channels.right, Speaker.customer: channels.left},
+            silence_ratio=processed.silence_ratio,
+            noise_level=processed.noise_level,
+        )
 
-        progress(JobStage.analyzing_emotion, 72)
+    def restore_transcription(
+        self,
+        audio_bytes: bytes,
+        segments: list[Segment],
+    ) -> TranscriptionResult:
+        channels = self.audio.split_required_stereo(audio_bytes)
+        processed = self.audio.process(audio_bytes)
+        return TranscriptionResult(
+            segments=segments,
+            channel_audio={Speaker.sales: channels.right, Speaker.customer: channels.left},
+            silence_ratio=processed.silence_ratio,
+            noise_level=processed.noise_level,
+        )
+
+    def transcription_from_mono(
+        self,
+        audio_bytes: bytes,
+        segments: list[Segment],
+    ) -> TranscriptionResult:
+        processed = self.audio.process(audio_bytes)
+        return TranscriptionResult(
+            segments=segments,
+            channel_audio={
+                Speaker.sales: audio_bytes,
+                Speaker.customer: audio_bytes,
+                Speaker.unknown: audio_bytes,
+            },
+            silence_ratio=processed.silence_ratio,
+            noise_level=processed.noise_level,
+        )
+
+    def analyze_emotion(
+        self,
+        transcription: TranscriptionResult,
+    ) -> dict[str, EmotionResult]:
+        # 时间戳只对应原始声道，情绪切片不能使用双声道混音。
         try:
-            # 一次批量提交全部句段，结果仍逐句回填，前端情绪曲线粒度不变。
             emotion_results = self.emotion.analyze_many([
-                (channel_audio[segment.speaker], segment.start_ms, segment.end_ms)
-                for segment in segments
+                (
+                    transcription.channel_audio[segment.speaker],
+                    segment.start_ms,
+                    segment.end_ms,
+                )
+                for segment in transcription.segments
             ])
-            if len(emotion_results) != len(segments):
+            if len(emotion_results) != len(transcription.segments):
                 raise RuntimeError("emotion result count does not match segments")
-            for segment, emotion in zip(segments, emotion_results, strict=True):
-                segment.emotion = emotion
+            return {
+                segment.id: emotion
+                for segment, emotion in zip(
+                    transcription.segments,
+                    emotion_results,
+                    strict=True,
+                )
+            }
         except Exception as exc:
             raise AnalysisPipelineError("emotion_failed", "通话情绪分析失败") from exc
 
-        progress(JobStage.scanning_risks, 82)
+    def scan_risks(
+        self,
+        segments: list[Segment],
+    ) -> dict[str, SegmentRiskArtifact]:
+        results: dict[str, SegmentRiskArtifact] = {}
         for segment in segments:
             segment.translation = ""
             segment.target_language = "zh"
-            segment.sensitive_hits = self.sensitive_store.scan(
-                segment.text,
-                segment.speaker,
-                segment.id,
-                segment.start_ms,
-                segment.end_ms,
+            results[segment.id] = SegmentRiskArtifact(
+                sensitive_hits=self.sensitive_store.scan(
+                    segment.text,
+                    segment.speaker,
+                    segment.id,
+                    segment.start_ms,
+                    segment.end_ms,
+                ),
+                compliance_hits=self.compliance.check(segment),
             )
-            segment.compliance_hits = self.compliance.check(segment)
+        return results
 
-        processed = self.audio.process(audio_bytes)
-        quality = self.quality.score(segments, processed.silence_ratio, processed.noise_level)
-        return LocalAnalysisResult(segments=segments, quality=quality)
+    def score_quality(
+        self,
+        transcription: TranscriptionResult,
+        enriched_segments: list[Segment],
+    ) -> QualityScore:
+        return self.quality.score(
+            enriched_segments,
+            transcription.silence_ratio,
+            transcription.noise_level,
+        )

@@ -4,6 +4,7 @@ import {
   createUrlJob,
   getJob,
   getJobResult,
+  retryModule as requestModuleRetry,
   retrySummary as requestSummaryRetry
 } from "../api/client";
 import type { AnalysisResult, JobCreateResponse, JobStage, JobStatusResponse } from "../types";
@@ -48,7 +49,15 @@ export function useAnalysisJob() {
     error.value = "";
     try {
       const created = await factory();
-      job.value = { ...created, summary_status: "pending" };
+      job.value = {
+        ...created,
+        transcript_status: "pending",
+        emotion_status: "pending",
+        risk_status: "pending",
+        quality_status: "pending",
+        summary_status: "pending",
+        module_errors: {}
+      };
       await poll(created.job_id, current);
     } catch (cause) {
       error.value = cause instanceof Error ? cause.message : "无法创建分析任务";
@@ -61,9 +70,17 @@ export function useAnalysisJob() {
       const status = await getJob(jobId);
       if (current !== generation) return;
       job.value = status;
-      if (status.status === "completed") {
+      if (status.transcript_status === "completed") {
         result.value = await getJobResult(jobId);
-        if (status.summary_status === "running") {
+      }
+      if (status.status === "completed") {
+        const hasActiveModule = [
+          status.emotion_status,
+          status.risk_status,
+          status.quality_status,
+          status.summary_status
+        ].some((value) => value === "pending" || value === "running");
+        if (hasActiveModule) {
           pollTimer = setTimeout(() => void poll(jobId, current), 1000);
         }
         return;
@@ -79,16 +96,32 @@ export function useAnalysisJob() {
   }
 
   async function retrySummary() {
+    await retryAnalysisModule("summary", requestSummaryRetry);
+  }
+
+  async function attachJob(jobId: string) {
+    stopPolling();
+    generation += 1;
+    const current = generation;
+    error.value = "";
+    job.value = await getJob(jobId);
+    await poll(jobId, current);
+  }
+
+  async function retryAnalysisModule(
+    module: "emotion" | "risk" | "quality" | "summary",
+    request: (jobId: string) => Promise<JobStatusResponse> = (jobId) => requestModuleRetry(jobId, module)
+  ) {
     if (!job.value) return;
     error.value = "";
     try {
-      const status = await requestSummaryRetry(job.value.job_id);
+      const status = await request(job.value.job_id);
       job.value = status;
       // 递增轮询代次，使旧请求返回时不能覆盖本次重新生成的摘要状态。
       generation += 1;
       await poll(status.job_id, generation);
     } catch (cause) {
-      error.value = cause instanceof Error ? cause.message : "摘要重新生成失败";
+      error.value = cause instanceof Error ? cause.message : "分析任务重新执行失败";
     }
   }
 
@@ -101,6 +134,8 @@ export function useAnalysisJob() {
     statusText,
     submitFile: (file: File) => submit(() => createUploadJob(file)),
     submitUrl: (url: string) => submit(() => createUrlJob(url)),
-    retrySummary
+    retrySummary,
+    retryModule: retryAnalysisModule,
+    attachJob
   };
 }

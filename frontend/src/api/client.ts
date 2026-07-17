@@ -1,7 +1,9 @@
 import type {
   AnalysisResult,
   JobCreateResponse,
-  JobStatusResponse
+  JobStatusResponse,
+  TtsJobResponse,
+  TtsVoiceResponse
 } from "../types";
 
 export const API_BASE = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:8000";
@@ -41,6 +43,36 @@ export function retrySummary(jobId: string): Promise<JobStatusResponse> {
   return requestJson(`/api/jobs/${jobId}/retry-summary`, { method: "POST" });
 }
 
+export function retryModule(
+  jobId: string,
+  module: "emotion" | "risk" | "quality" | "summary"
+): Promise<JobStatusResponse> {
+  return requestJson(`/api/jobs/${jobId}/retry/${module}`, { method: "POST" });
+}
+
 export function jobAudioUrl(jobId: string): string {
   return `${API_BASE}/api/jobs/${jobId}/audio`;
+}
+
+export function cloneTtsVoice(file: File, consent: boolean): Promise<TtsVoiceResponse> {
+  const form = new FormData();
+  form.append("file", file);
+  form.append("consent", String(consent));
+  return requestJson("/api/tts/voices/clone", { method: "POST", body: form });
+}
+
+export function createTtsJob(voiceId: string, text: string): Promise<TtsJobResponse> {
+  return requestJson("/api/tts/jobs", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ voice_id: voiceId, text })
+  });
+}
+
+export function getTtsJob(jobId: string): Promise<TtsJobResponse> {
+  return requestJson(`/api/tts/jobs/${jobId}`);
+}
+
+export function ttsAudioUrl(jobId: string, download = false): string {
+  return `${API_BASE}/api/tts/jobs/${jobId}/audio${download ? "?download=true" : ""}`;
 }

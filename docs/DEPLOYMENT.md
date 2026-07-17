@@ -1,61 +1,76 @@
 # Deployment Guide
 
-This project is currently a local-first prototype. Use the commands below for development and demo environments.
+## 主后端
 
-## Backend
-
-```bash
+```powershell
 cd backend
 python -m venv .venv
-.venv\Scripts\activate
-python -m pip install -e .[test]
+.venv\Scripts\Activate.ps1
+python -m pip install -e ".[test]"
+Copy-Item ..\.env.example .env
+python scripts\download_realtime_models.py
 python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
-Optional local model dependencies:
+实时模型下载脚本会预取流式 Paraformer、FSMN-VAD 和 CAM++。离线 Paraformer、标点和 Emotion2Vec 在首次使用时由 ModelScope 缓存。
 
-```bash
-python -m pip install -e .[models]
-```
+## 前端
 
-## Frontend
-
-```bash
+```powershell
 cd frontend
 npm install
 npm run build
 ```
 
-For development:
+开发环境：
 
-```bash
+```powershell
+$env:VITE_API_BASE="http://127.0.0.1:8000"
 npm run dev -- --host 127.0.0.1 --port 5173
 ```
 
-If the backend uses a non-default port:
+生产环境使用 HTTPS 时，WebSocket 代理必须允许二进制帧并保持长连接。浏览器麦克风只在安全上下文或本机地址可用。
+
+## CosyVoice 工作进程
+
+要求：Git、Conda、Python 3.10 环境和足够的模型存储空间。安装脚本锁定官方提交 `074ca6dc9e80a2f424f1f74b48bdd7d3fea531cc`，模型为 `FunAudioLLM/Fun-CosyVoice3-0.5B-2512`。
 
 ```powershell
-$env:VITE_API_BASE="http://127.0.0.1:8022"
-npm run dev -- --host 127.0.0.1 --port 5178
+cd backend
+.\scripts\setup_cosyvoice.ps1
 ```
 
-## Environment Variables
+生成一个随机令牌，并在工作进程和主后端中配置相同值：
 
-| Name | Default | Description |
+```powershell
+$env:COSYVOICE_WORKER_TOKEN="替换为随机令牌"
+$env:CALL_ASR_COSYVOICE_WORKER_TOKEN=$env:COSYVOICE_WORKER_TOKEN
+.\scripts\start_cosyvoice.ps1
+```
+
+主后端连接地址默认为 `http://127.0.0.1:18081`。工作进程只监听本机，且只允许读取 `backend/data/tts` 中的参考音频并写入该目录的任务输出。未启动工作进程时，其他功能保持可用，TTS 页面会显示“CosyVoice 工作进程不可用”。
+
+## 环境变量
+
+| 名称 | 默认值 | 说明 |
 |---|---|---|
-| `CALL_ASR_DATABASE_PATH` | `data/call_asr.sqlite3` | SQLite database path |
-| `CALL_ASR_SENSITIVE_WORDS_PATH` | `data/sensitive_words.sample.json` | Sensitive lexicon path |
-| `CALL_ASR_ASR_PROVIDER` | `mock` | ASR provider name |
-| `CALL_ASR_ASR_MODEL_SIZE` | `base` | Local ASR model size |
-| `CALL_ASR_PREFERRED_DEVICE` | `auto` | `auto`, `cpu`, or `cuda` |
-| `CALL_ASR_TARGET_LANGUAGE` | `en` | Default translation target |
-| `VITE_API_BASE` | `http://127.0.0.1:8000` | Frontend backend base URL |
+| `CALL_ASR_DATABASE_PATH` | `data/call_asr.sqlite3` | SQLite 路径 |
+| `CALL_ASR_PREFERRED_DEVICE` | `auto` | `auto`、`cpu` 或 `cuda` |
+| `CALL_ASR_MAX_AUDIO_BYTES` | `52428800` | 单个分析音频上限 |
+| `CALL_ASR_JOB_RETENTION_DAYS` | `7` | 分析任务保留天数 |
+| `DEEPSEEK_API_KEY` | 空 | DeepSeek API Key |
+| `DEEPSEEK_BASE_URL` | `https://api.deepseek.com` | DeepSeek API 地址 |
+| `DEEPSEEK_MODEL` | `deepseek-v4-pro` | 摘要模型名称 |
+| `CALL_ASR_COSYVOICE_WORKER_URL` | `http://127.0.0.1:18081` | TTS 工作进程地址 |
+| `CALL_ASR_COSYVOICE_WORKER_TOKEN` | 空 | 主后端调用令牌 |
+| `CALL_ASR_TTS_RETENTION_DAYS` | `7` | 临时音色与合成音频保留天数 |
+| `CALL_ASR_TTS_MAX_REFERENCE_BYTES` | `20971520` | 参考音频上限 |
+| `VITE_API_BASE` | `http://127.0.0.1:8000` | 前端访问的后端地址 |
 
-## Production Hardening Checklist
+## 上线检查
 
-- Replace mock ASR with a real local model provider.
-- Add object storage for uploaded audio.
-- Add a task queue for long offline recordings.
-- Add authentication and audit logs.
-- Add lexicon management UI and validation.
-- Add observability for ASR latency and risk-alert volume.
+- 使用 HTTPS 和 WSS，并在反向代理中保留 `Range`、`Upgrade` 和 `Connection` 请求头。
+- 为 API、WebSocket 和音频 URL 下载增加身份认证、租户隔离和审计日志。
+- 将 DeepSeek Key、工作进程令牌放入密钥管理系统，不写入镜像或仓库。
+- 为 SQLite 和 `backend/data` 设置备份、容量监控和定期清理。
+- 根据 GPU 显存限制单机并发，并监控实时 ASR 延迟、任务失败率和 TTS 队列长度。

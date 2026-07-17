@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, watch } from "vue";
-import { Clock3, MessageSquareText } from "lucide-vue-next";
+import { Clock3, MessageSquareText, Volume2 } from "lucide-vue-next";
 import type { Segment, SensitiveHit, Speaker } from "../types";
 
 const props = defineProps<{
@@ -13,6 +13,7 @@ const emit = defineEmits<{
   seek: [milliseconds: number];
   updateMode: [value: "sentence" | "merged"];
   updateSpeaker: [value: "all" | Speaker];
+  synthesize: [text: string];
 }>();
 
 interface DisplaySegment extends Segment {}
@@ -68,8 +69,10 @@ watch(activeSegmentId, async (id) => {
   rowElements.get(id)?.scrollIntoView({ behavior: "smooth", block: "nearest" });
 });
 
-function speakerName(speaker: Speaker) {
-  return speaker === "sales" ? "销售" : speaker === "customer" ? "客户" : "未知";
+function speakerName(segment: DisplaySegment) {
+  if (segment.speaker === "sales") return "销售";
+  if (segment.speaker === "customer") return "客户";
+  return segment.speaker_cluster === "speaker_2" ? "说话人 2" : segment.speaker_cluster === "speaker_1" ? "说话人 1" : "未知";
 }
 
 function formatTime(milliseconds: number) {
@@ -126,15 +129,14 @@ function highlighted(segment: Segment): Array<{ text: string; hit?: SensitiveHit
     </header>
     <div v-if="!filtered.length" class="emptyState">暂无识别内容</div>
     <div v-else class="segmentList">
-      <button
+      <article
         v-for="segment in filtered"
         :key="segment.id"
         :ref="(element) => setSegmentRow(segment.id, element)"
-        type="button"
         :class="['segmentRow', segment.speaker, { active: activeSegmentId === segment.id }]"
         @click="emit('seek', segment.start_ms)"
       >
-        <span class="speakerBadge">{{ speakerName(segment.speaker) }}</span>
+        <span class="speakerBadge">{{ speakerName(segment) }}</span>
         <span class="segmentBody">
           <span class="segmentText">
             <template v-for="(part, index) in highlighted(segment)" :key="`${segment.id}-${index}`">
@@ -147,8 +149,9 @@ function highlighted(segment: Segment): Array<{ text: string; hit?: SensitiveHit
         <span class="segmentAside">
           <span :class="['emotionTag', segment.emotion.label]">{{ emotionName(segment.emotion.label) }}</span>
           <span class="timeTag"><Clock3 :size="13" /> {{ formatTime(segment.start_ms) }} - {{ formatTime(segment.end_ms) }}</span>
+          <button class="sentenceTtsButton" type="button" aria-label="朗读本句" title="朗读本句" @click.stop="emit('synthesize', segment.text)"><Volume2 :size="14" /></button>
         </span>
-      </button>
+      </article>
     </div>
   </section>
 </template>

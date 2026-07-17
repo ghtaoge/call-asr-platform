@@ -52,5 +52,9 @@ describe("TranscriptPanel", () => {
     await wrapper.setProps({ activeTime: 6000 });
     await nextTick();
     expect(wrapper.find(".segmentRow.active").text()).toContain("第二句话。");
+
+    await wrapper.findAll("button[aria-label='朗读本句']")[1].trigger("click");
+    expect(wrapper.emitted("synthesize")?.[0]).toEqual(["第二句话。"]);
+    expect(wrapper.find(".segmentRow").attributes("role")).toBeUndefined();
   });
 });

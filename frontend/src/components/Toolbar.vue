@@ -5,6 +5,7 @@ defineProps<{
   audioUrl: string;
   isWorking: boolean;
   status: string;
+  showSourceActions?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -30,7 +31,7 @@ function onFileChange(event: Event) {
         <p>{{ status }}</p>
       </div>
     </div>
-    <div class="sourceActions">
+    <div v-if="showSourceActions !== false" class="sourceActions">
       <div class="urlField">
         <Link :size="17" aria-hidden="true" />
         <input

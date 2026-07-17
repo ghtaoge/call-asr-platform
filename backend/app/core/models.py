@@ -44,10 +44,16 @@ class ComplianceHit(BaseModel):
     segment_id: str
 
 
+class SegmentRiskArtifact(BaseModel):
+    sensitive_hits: list[SensitiveHit] = Field(default_factory=list)
+    compliance_hits: list[ComplianceHit] = Field(default_factory=list)
+
+
 class Segment(BaseModel):
     id: str
     session_id: str
     speaker: Speaker = Speaker.unknown
+    speaker_cluster: Literal["speaker_1", "speaker_2"] | None = None
     start_ms: int = Field(ge=0)
     end_ms: int = Field(ge=0)
     text: str
