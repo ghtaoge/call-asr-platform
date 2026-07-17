@@ -2,9 +2,11 @@ import asyncio
 import io
 import wave
 
+import pytest
+
 from app.core.inference_gate import InferenceGate
 from app.core.models import Segment, Speaker
-from app.tts.manager import TtsManager
+from app.tts.manager import TtsManager, TtsValidationError
 from app.tts.models import TtsJobStatus
 from app.tts.repository import TtsRepository
 from app.tts.storage import TtsStorage
@@ -36,9 +38,14 @@ class Asr:
 class Provider:
     def __init__(self):
         self.calls = []
+        self.preset_calls = []
 
     async def synthesize(self, text, prompt_text, prompt_path, output_path):
         self.calls.append(text)
+        output_path.write_bytes(wav(1))
+
+    async def synthesize_preset(self, text, model_speaker, output_path):
+        self.preset_calls.append((text, model_speaker))
         output_path.write_bytes(wav(1))
 
     async def close(self):
@@ -89,4 +96,26 @@ async def test_tts_waits_while_realtime_is_active(tmp_path):
     await gate.realtime_ended()
     await manager.wait(job.job_id)
     assert provider.calls == ["排队文本"]
+    await manager.close()
+
+
+async def test_preset_voice_synthesizes_without_reference_upload(tmp_path):
+    repository = TtsRepository(tmp_path / "database.sqlite3")
+    provider = Provider()
+    manager = TtsManager(
+        repository, TtsStorage(tmp_path / "tts", 1024 * 1024),
+        Audio(), Asr(), provider, InferenceGate(), 7,
+    )
+    await manager.start()
+
+    presets = manager.list_preset_voices()
+    assert presets[0].label == "普通话女声"
+    job = await manager.create_job("preset:zh_female", "欢迎使用默认音色。")
+    await manager.wait(job.job_id)
+
+    completed = await repository.require_job(job.job_id)
+    assert completed.status == TtsJobStatus.completed
+    assert provider.preset_calls == [("欢迎使用默认音色。", "中文女")]
+    with pytest.raises(TtsValidationError, match="默认音色不存在"):
+        await manager.create_job("preset:not-allowed", "无效音色。")
     await manager.close()

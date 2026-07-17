@@ -1,9 +1,11 @@
 import { computed, onBeforeUnmount, ref } from "vue";
-import { cloneTtsVoice, createTtsJob, getTtsJob, ttsAudioUrl } from "../api/client";
-import type { TtsJobResponse, TtsVoiceResponse } from "../types";
+import { cloneTtsVoice, createTtsJob, getTtsJob, getTtsPresetVoices, ttsAudioUrl } from "../api/client";
+import type { TtsJobResponse, TtsPresetVoice, TtsVoiceResponse } from "../types";
 
 export function useTts() {
   const voice = ref<TtsVoiceResponse>();
+  const presets = ref<TtsPresetVoice[]>([]);
+  const selectedPresetVoiceId = ref("");
   const job = ref<TtsJobResponse>();
   const error = ref("");
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -12,6 +14,17 @@ export function useTts() {
   const isWorking = computed(() => job.value?.status === "queued" || job.value?.status === "running");
   const audioUrl = computed(() => job.value?.status === "completed" ? ttsAudioUrl(job.value.job_id) : "");
   const downloadUrl = computed(() => job.value?.status === "completed" ? ttsAudioUrl(job.value.job_id, true) : "");
+
+  async function loadPresets() {
+    try {
+      presets.value = await getTtsPresetVoices();
+      if (!presets.value.some((item) => item.voice_id === selectedPresetVoiceId.value)) {
+        selectedPresetVoiceId.value = presets.value[0]?.voice_id || "";
+      }
+    } catch (cause) {
+      error.value = cause instanceof Error ? cause.message : "无法获取默认音色";
+    }
+  }
 
   async function uploadVoice(file: File, consent: boolean) {
     stopPolling();
@@ -24,14 +37,15 @@ export function useTts() {
     }
   }
 
-  async function synthesize(text: string) {
-    if (!voice.value) return;
+  async function synthesize(text: string, requestedVoiceId?: string) {
+    const voiceId = requestedVoiceId || voice.value?.voice_id;
+    if (!voiceId) return;
     stopPolling();
     generation += 1;
     const current = generation;
     error.value = "";
     try {
-      job.value = await createTtsJob(voice.value.voice_id, text.trim());
+      job.value = await createTtsJob(voiceId, text.trim());
       await poll(job.value.job_id, current);
     } catch (cause) {
       error.value = cause instanceof Error ? cause.message : "语音合成任务创建失败";
@@ -57,6 +71,26 @@ export function useTts() {
     timer = undefined;
   }
 
+  function resetResult() {
+    stopPolling();
+    generation += 1;
+    job.value = undefined;
+    error.value = "";
+  }
+
   onBeforeUnmount(stopPolling);
-  return { voice, job, error, isWorking, audioUrl, downloadUrl, uploadVoice, synthesize };
+  return {
+    voice,
+    presets,
+    selectedPresetVoiceId,
+    job,
+    error,
+    isWorking,
+    audioUrl,
+    downloadUrl,
+    loadPresets,
+    uploadVoice,
+    synthesize,
+    resetResult
+  };
 }

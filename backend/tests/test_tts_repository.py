@@ -69,3 +69,15 @@ async def test_restart_and_retention_cleanup_recover_stale_jobs(tmp_path):
     assert job_ids == ["tts_running"]
     with pytest.raises(KeyError):
         await repository.require_job("tts_running")
+
+
+async def test_preset_job_does_not_require_temporary_voice(tmp_path):
+    repository = TtsRepository(tmp_path / "tts.sqlite3")
+    await repository.init()
+    job = await repository.create_job(
+        "tts_preset",
+        "preset:zh_female",
+        "默认音色。",
+        validate_voice=False,
+    )
+    assert job.voice_id == "preset:zh_female"

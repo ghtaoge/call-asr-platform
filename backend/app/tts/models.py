@@ -39,6 +39,14 @@ class TtsVoiceResponse(BaseModel):
     expires_at: datetime
 
 
+class TtsPresetVoiceResponse(BaseModel):
+    id: str
+    voice_id: str
+    label: str
+    language: str
+    gender: str
+
+
 class TtsJobRequest(BaseModel):
     voice_id: str
     text: str = Field(min_length=1, max_length=2000)

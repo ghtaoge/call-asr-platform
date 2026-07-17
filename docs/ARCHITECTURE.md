@@ -37,7 +37,7 @@ app/tts          音色、TTS 队列、存储和工作进程客户端
 
 ## 推理资源协调
 
-实时 ASR 的交互延迟优先级最高。`InferenceGate` 在实时会话活跃时暂停参考音频识别和 TTS 合成队列，避免多个大模型争抢同一 GPU。离线分析和 TTS 使用独立队列；CosyVoice 运行在独立 Conda 环境和本机端口，主服务通过带令牌的 HTTP 请求调用。
+实时 ASR 的交互延迟优先级最高。`InferenceGate` 在实时会话活跃时暂停参考音频识别和 TTS 合成队列，避免多个大模型争抢同一 GPU。离线分析和 TTS 使用独立队列；CosyVoice 运行在独立 Conda 环境和本机端口，主服务通过带令牌的 HTTP 请求调用。自定义音色使用 Fun-CosyVoice3 零样本推理，默认音色使用按需加载的 CosyVoice-300M-SFT；两种推理由同一进程锁串行执行。
 
 ## 存储
 

@@ -121,6 +121,14 @@ export interface TtsVoiceResponse {
   expires_at: string;
 }
 
+export interface TtsPresetVoice {
+  id: string;
+  voice_id: string;
+  label: string;
+  language: string;
+  gender: "female" | "male";
+}
+
 export interface TtsJobResponse {
   job_id: string;
   voice_id: string;

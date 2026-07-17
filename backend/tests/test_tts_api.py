@@ -21,6 +21,17 @@ class FakeTtsManager:
             expires_at=datetime.now(UTC) + timedelta(days=7),
         )
 
+    def list_preset_voices(self):
+        from app.tts.models import TtsPresetVoiceResponse
+
+        return [TtsPresetVoiceResponse(
+            id="zh_female",
+            voice_id="preset:zh_female",
+            label="普通话女声",
+            language="普通话",
+            gender="female",
+        )]
+
     async def create_job(self, voice_id, text):
         return TtsJobResponse(job_id="tts_1", voice_id=voice_id, status=TtsJobStatus.queued)
 
@@ -56,3 +67,23 @@ def test_voice_consent_and_generated_audio_headers(tmp_path):
 
     download = client.get("/api/tts/jobs/tts_1/audio?download=true")
     assert "ai-generated-tts_1.wav" in download.headers["content-disposition"]
+
+
+def test_lists_default_voices_and_accepts_preset_job(tmp_path):
+    client = client_with(FakeTtsManager(tmp_path / "result.wav"))
+    presets = client.get("/api/tts/voices/presets")
+    assert presets.status_code == 200
+    assert presets.json()[0] == {
+        "id": "zh_female",
+        "voice_id": "preset:zh_female",
+        "label": "普通话女声",
+        "language": "普通话",
+        "gender": "female",
+    }
+
+    created = client.post(
+        "/api/tts/jobs",
+        json={"voice_id": "preset:zh_female", "text": "默认音色。"},
+    )
+    assert created.status_code == 202
+    assert created.json()["voice_id"] == "preset:zh_female"

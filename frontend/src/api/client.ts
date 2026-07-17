@@ -3,6 +3,7 @@ import type {
   JobCreateResponse,
   JobStatusResponse,
   TtsJobResponse,
+  TtsPresetVoice,
   TtsVoiceResponse
 } from "../types";
 
@@ -59,6 +60,10 @@ export function cloneTtsVoice(file: File, consent: boolean): Promise<TtsVoiceRes
   form.append("file", file);
   form.append("consent", String(consent));
   return requestJson("/api/tts/voices/clone", { method: "POST", body: form });
+}
+
+export function getTtsPresetVoices(): Promise<TtsPresetVoice[]> {
+  return requestJson("/api/tts/voices/presets");
 }
 
 export function createTtsJob(voiceId: string, text: string): Promise<TtsJobResponse> {

@@ -6,6 +6,7 @@ backend/data/jobs/
 backend/data/realtime/
 backend/data/tts/
 backend/vendor/CosyVoice/
+backend/vendor/pretrained_models/
 backend/.env
 .env
 backend/server.*.log
@@ -13,5 +14,6 @@ backend/runtime.*.log
 frontend/dist/
 frontend/node_modules/
 frontend/server.*.log
+frontend/runtime.*.log
 .playwright-cli/
 output/

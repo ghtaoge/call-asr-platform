@@ -125,6 +125,33 @@ WS /ws/realtime/{session_id}
 
 ## TTS
 
+获取可选默认音色：
+
+```http
+GET /api/tts/voices/presets
+```
+
+```json
+[
+  {
+    "id": "zh_female",
+    "voice_id": "preset:zh_female",
+    "label": "普通话女声",
+    "language": "普通话",
+    "gender": "female"
+  }
+]
+```
+
+使用默认音色创建任务时，直接提交列表返回的 `voice_id`，不需要参考音频或授权表单：
+
+```http
+POST /api/tts/jobs
+Content-Type: application/json
+
+{"voice_id":"preset:zh_female","text":"需要合成的中文内容。"}
+```
+
 上传参考音频并自动识别参考文本：
 
 ```http
@@ -142,7 +169,7 @@ Content-Type: multipart/form-data
 }
 ```
 
-创建合成任务：
+使用自定义音色创建合成任务：
 
 ```http
 POST /api/tts/jobs

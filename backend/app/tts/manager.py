@@ -10,7 +10,14 @@ from app.asr.sensevoice_provider import SenseVoiceProvider
 from app.audio.preprocessor import AudioPreprocessor
 from app.core.inference_gate import InferenceGate
 from app.core.models import Speaker
-from app.tts.models import TtsJob, TtsJobResponse, TtsJobStatus, TtsVoiceResponse
+from app.tts.models import (
+    TtsJob,
+    TtsJobResponse,
+    TtsJobStatus,
+    TtsPresetVoiceResponse,
+    TtsVoiceResponse,
+)
+from app.tts.presets import PRESET_VOICES, preset_from_voice_id
 from app.tts.provider import CosyVoiceWorkerProvider, TtsProviderError
 from app.tts.repository import TtsRepository, VoiceExpiredError
 from app.tts.storage import TtsStorage, TtsStorageLimitError
@@ -118,13 +125,33 @@ class TtsManager:
         if not normalized or len(normalized) > 2000:
             raise TtsValidationError("合成文本必须为 1 到 2000 个字符")
         job_id = f"tts_{uuid4().hex[:16]}"
+        preset = preset_from_voice_id(voice_id)
+        if voice_id.startswith("preset:") and preset is None:
+            raise TtsValidationError("默认音色不存在")
         try:
-            job = await self.repository.create_job(job_id, voice_id, normalized)
+            job = await self.repository.create_job(
+                job_id,
+                voice_id,
+                normalized,
+                validate_voice=preset is None,
+            )
         except VoiceExpiredError as exc:
             raise TtsValidationError("临时音色已过期，请重新上传参考音频") from exc
         self._completed[job_id] = asyncio.Event()
         await self.queue.put(job_id)
         return self._response(job)
+
+    def list_preset_voices(self) -> list[TtsPresetVoiceResponse]:
+        return [
+            TtsPresetVoiceResponse(
+                id=voice.id,
+                voice_id=voice.voice_id,
+                label=voice.label,
+                language=voice.language,
+                gender=voice.gender,
+            )
+            for voice in PRESET_VOICES
+        ]
 
     async def get_job(self, job_id: str) -> TtsJobResponse:
         return self._response(await self.repository.require_job(job_id))
@@ -151,15 +178,23 @@ class TtsManager:
             try:
                 await self.gate.wait_for_background_slot()
                 job = await self.repository.require_job(job_id)
-                voice = await self.repository.require_voice(job.voice_id)
                 await self.repository.set_job_status(job_id, TtsJobStatus.running)
                 output = self.storage.output_path(job_id)
-                await self.provider.synthesize(
-                    job.text,
-                    voice.prompt_text,
-                    voice.prompt_path,
-                    output,
-                )
+                preset = preset_from_voice_id(job.voice_id)
+                if preset:
+                    await self.provider.synthesize_preset(
+                        job.text,
+                        preset.model_speaker,
+                        output,
+                    )
+                else:
+                    voice = await self.repository.require_voice(job.voice_id)
+                    await self.provider.synthesize(
+                        job.text,
+                        voice.prompt_text,
+                        voice.prompt_path,
+                        output,
+                    )
                 await self.repository.set_job_status(
                     job_id,
                     TtsJobStatus.completed,

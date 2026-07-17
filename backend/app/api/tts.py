@@ -2,7 +2,12 @@ from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 
 from app.audio.responses import audio_file_response
 from app.tts.manager import TtsManager, TtsValidationError
-from app.tts.models import TtsJobRequest, TtsJobResponse, TtsVoiceResponse
+from app.tts.models import (
+    TtsJobRequest,
+    TtsJobResponse,
+    TtsPresetVoiceResponse,
+    TtsVoiceResponse,
+)
 
 
 router = APIRouter(prefix="/api/tts", tags=["tts"])
@@ -13,6 +18,11 @@ def _manager(request: Request) -> TtsManager:
     if manager is None:
         raise HTTPException(status_code=503, detail="语音合成服务尚未就绪")
     return manager
+
+
+@router.get("/voices/presets", response_model=list[TtsPresetVoiceResponse])
+async def list_preset_voices(request: Request) -> list[TtsPresetVoiceResponse]:
+    return _manager(request).list_preset_voices()
 
 
 @router.post("/voices/clone", response_model=TtsVoiceResponse, status_code=201)

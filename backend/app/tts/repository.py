@@ -64,8 +64,16 @@ class TtsRepository:
             raise VoiceExpiredError(voice_id)
         return voice
 
-    async def create_job(self, job_id: str, voice_id: str, text: str) -> TtsJob:
-        await self.require_voice(voice_id)
+    async def create_job(
+        self,
+        job_id: str,
+        voice_id: str,
+        text: str,
+        *,
+        validate_voice: bool = True,
+    ) -> TtsJob:
+        if validate_voice:
+            await self.require_voice(voice_id)
         now = datetime.now(UTC).isoformat()
         async with aiosqlite.connect(self.database_path) as db:
             await db.execute(

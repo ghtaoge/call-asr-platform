@@ -33,7 +33,10 @@ npm run dev -- --host 127.0.0.1 --port 5173
 
 ## CosyVoice 工作进程
 
-要求：Git、Conda、Python 3.10 环境和足够的模型存储空间。安装脚本锁定官方提交 `074ca6dc9e80a2f424f1f74b48bdd7d3fea531cc`，模型为 `FunAudioLLM/Fun-CosyVoice3-0.5B-2512`。
+要求：Git、Conda、Python 3.10 环境和足够的模型存储空间。安装脚本锁定官方提交 `074ca6dc9e80a2f424f1f74b48bdd7d3fea531cc`，并下载两个模型：
+
+- `FunAudioLLM/Fun-CosyVoice3-0.5B-2512`：参考音频零样本声音复刻。
+- `iic/CosyVoice-300M-SFT`：普通话、粤语、英语、日语和韩语默认音色。
 
 ```powershell
 cd backend
@@ -48,7 +51,9 @@ $env:CALL_ASR_COSYVOICE_WORKER_TOKEN=$env:COSYVOICE_WORKER_TOKEN
 .\scripts\start_cosyvoice.ps1
 ```
 
-主后端连接地址默认为 `http://127.0.0.1:18081`。工作进程只监听本机，且只允许读取 `backend/data/tts` 中的参考音频并写入该目录的任务输出。未启动工作进程时，其他功能保持可用，TTS 页面会显示“CosyVoice 工作进程不可用”。
+主后端连接地址默认为 `http://127.0.0.1:18081`。工作进程只监听本机，且只允许读取 `backend/data/tts` 中的参考音频并写入该目录的任务输出。SFT 模型在第一次使用默认音色时延迟加载；首次合成会比后续任务慢。未启动工作进程时，其他功能保持可用，TTS 页面会显示“CosyVoice 工作进程不可用”。
+
+Windows 开发机如果未启动工作进程，普通话和英语默认音色会自动调用系统 SAPI 生成 WAV；这只是可用性兜底，不支持自定义声音复刻，也不代表 CosyVoice 的音色质量。粤语、日语和韩语默认音色仍要求 CosyVoice 工作进程在线。
 
 ## 环境变量
 
