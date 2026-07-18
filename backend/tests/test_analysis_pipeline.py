@@ -73,3 +73,28 @@ def test_pipeline_maps_second_channel_to_sales_and_first_to_customer():
         (b"channel-1", 0, 1000),
         (b"channel-2", 0, 1000),
     ]]
+
+
+def test_pipeline_uses_one_remote_batch_request_for_both_channels():
+    class Audio:
+        def split_required_stereo(self, audio):
+            return ChannelSplitResult(left=b"customer", right=b"sales", is_stereo=True, original=audio)
+
+    class Rpc:
+        def __init__(self):
+            self.calls = []
+
+        def batch_recognize(self, tenant_id, job_id, channels):
+            self.calls.append((tenant_id, job_id, channels))
+            return [
+                type("Remote", (), {"speaker": "sales", "start_ms": 0, "end_ms": 800, "text": "销售您好。", "confidence": 0.9})(),
+                type("Remote", (), {"speaker": "customer", "start_ms": 900, "end_ms": 1500, "text": "客户您好。", "confidence": 0.8})(),
+            ]
+
+    pipeline = AnalysisPipeline(
+        Audio(), object(), object(), object(), object(), object(), batch_rpc=Rpc()
+    )
+    pipeline.batch_rpc.calls = []
+    result = pipeline.transcribe(b"audio", "call_1", lambda stage, progress: None)
+    assert [item.speaker for item in result.segments] == [Speaker.sales, Speaker.customer]
+    assert pipeline.batch_rpc.calls == [("default", "call_1", [("sales", b"sales"), ("customer", b"customer")])]

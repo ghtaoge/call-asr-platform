@@ -1,6 +1,6 @@
 # Architecture
 
-项目由 FastAPI 后端、Vue 3 工作台和隔离的 CosyVoice 工作进程组成。主后端负责业务编排和数据持久化；推理工作通过线程执行器运行，避免阻塞事件循环。
+项目由 FastAPI 后端、Vue 3 工作台、独立 ASR 推理服务和隔离的 CosyVoice 工作进程组成。主后端负责业务编排和数据持久化；未配置 ASR RPC 时保留本地回退，正式 Compose 部署将模型推理移出 API 进程。
 
 ## 后端模块
 
@@ -8,6 +8,7 @@
 app/api          REST 与 WebSocket 路由
 app/audio        解码、双声道拆分、WAV 标准化和 Range 响应
 app/asr          Paraformer/SenseVoice 模型与生命周期管理
+asr_service      gRPC ASR 服务、200ms 聚合、微批调度和模型清单校验
 app/realtime     流式 ASR、VAD、CAM++ 聚类、协议和会话状态
 app/emotion      Emotion2Vec 声学情绪识别
 app/sensitive    敏感词自动机与词库
@@ -22,7 +23,7 @@ app/tts          音色、TTS 队列、存储和工作进程客户端
 
 1. 接收上传文件、音频 URL 或实时会话生成的 WAV。
 2. 标准化并校验音频；离线双声道按 Gooeto 协议拆分客户和销售声道。
-3. Paraformer 完成 VAD、时间戳、标点和分句。
+3. `asr-batch` 通过一次 gRPC 请求完成双声道 VAD、时间戳、标点和分句；开发环境没有 RPC 时回退到 `app/asr`。
 4. 立即保存语句并将 `transcript_status` 设为 `completed`，前端开始展示通话内容。
 5. 情绪、风险和摘要独立执行并分别更新模块状态；质检在相关数据可用后执行。
 6. 单个后处理模块失败不会清空转写，也不会阻塞其他模块；用户可单独重试。
@@ -31,13 +32,13 @@ app/tts          音色、TTS 队列、存储和工作进程客户端
 
 ## 实时识别流程
 
-浏览器的 AudioWorklet 将麦克风音频重采样为 16 kHz、单声道、16 位 PCM，每 20 ms 发送一个带序号和采集时间的二进制帧。后端通过流式 Paraformer 和 FSMN-VAD 输出 `partial_transcript` 与 `final_transcript`，并用 CAM++ 将最终语句聚类为两个说话人。
+浏览器的 AudioWorklet 将麦克风音频重采样为 16 kHz、单声道、16 位 PCM，每 20 ms 发送一个带序号和采集时间的二进制帧。`asr-realtime` 将十帧聚合为 200ms，按截止时间做公平微批调度，通过流式 Paraformer 和 FSMN-VAD 输出 `partial_transcript` 与 `final_transcript`，主后端再用 CAM++ 将最终语句聚类为两个说话人。
 
 客户端保留未确认帧并支持短线重连；后端返回 `audio_ack` 后才释放缓冲。结束会话时，实时录音和最终语句被交给普通分析任务，因此情绪、风险、质检和摘要仍遵循转写优先流程。
 
 ## 推理资源协调
 
-实时 ASR 的交互延迟优先级最高。`InferenceGate` 在实时会话活跃时暂停参考音频识别和 TTS 合成队列，避免多个大模型争抢同一 GPU。离线分析和 TTS 使用独立队列；CosyVoice 运行在独立 Conda 环境和本机端口，主服务通过带令牌的 HTTP 请求调用。自定义音色使用 Fun-CosyVoice3 零样本推理，默认音色使用按需加载的 CosyVoice-300M-SFT；两种推理由同一进程锁串行执行。
+实时 ASR 的交互延迟优先级最高。Compose 将 `asr-realtime` 固定到 GPU 0，将 `asr-batch` 固定到 GPU 1；服务只读挂载离线模型目录，启动预热完成后才报告 `SERVING`。`InferenceGate` 仍在本地回退模式下协调参考音频识别和 TTS 合成；CosyVoice 运行在独立容器，主服务通过带令牌的 HTTP 请求调用。
 
 ## 存储
 

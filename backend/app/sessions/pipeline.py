@@ -57,6 +57,7 @@ class AnalysisPipeline:
         sensitive_store: SensitiveStore,
         compliance: ComplianceRuleEngine,
         quality: QualityScorer,
+        batch_rpc=None,
     ) -> None:
         self.audio = audio
         self.asr = asr
@@ -64,6 +65,7 @@ class AnalysisPipeline:
         self.sensitive_store = sensitive_store
         self.compliance = compliance
         self.quality = quality
+        self.batch_rpc = batch_rpc
 
     def run(
         self,
@@ -92,6 +94,33 @@ class AnalysisPipeline:
     ) -> TranscriptionResult:
         progress(JobStage.preparing_audio, 5)
         channels = self.audio.split_required_stereo(audio_bytes)
+
+        if self.batch_rpc is not None:
+            remote_segments = self.batch_rpc.batch_recognize(
+                "default",
+                session_id,
+                [(Speaker.sales.value, channels.right), (Speaker.customer.value, channels.left)],
+            )
+            segments = [
+                Segment(
+                    id=f"{session_id}_{item.speaker}_{index:04d}",
+                    session_id=session_id,
+                    speaker=Speaker(item.speaker),
+                    start_ms=item.start_ms,
+                    end_ms=max(item.start_ms + 1, item.end_ms),
+                    text=item.text,
+                    confidence=item.confidence,
+                    language="zh",
+                    target_language="zh",
+                )
+                for index, item in enumerate(remote_segments, start=1)
+            ]
+            return TranscriptionResult(
+                segments=sorted(segments, key=lambda item: (item.start_ms, item.end_ms)),
+                channel_audio={Speaker.sales: channels.right, Speaker.customer: channels.left},
+                silence_ratio=0.0,
+                noise_level="low",
+            )
 
         # Gooeto 录音的固定协议是：第一（左）声道为客户，第二（右）声道为销售。
         # 角色必须在转写前绑定，后续摘要、敏感词和质检都会沿用此 speaker 值。

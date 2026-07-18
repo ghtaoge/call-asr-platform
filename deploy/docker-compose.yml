@@ -43,6 +43,62 @@ services:
       retries: 5
     logging: *bounded-logs
 
+  asr-realtime:
+    build:
+      context: ../backend
+      dockerfile: asr_service/Dockerfile
+    command: ["--mode", "realtime", "--port", "50051"]
+    restart: unless-stopped
+    environment:
+      ASR_MODE: realtime
+      ASR_DEVICE: cuda
+      CUDA_VISIBLE_DEVICES: ${ASR_REALTIME_GPU_DEVICE:-0}
+      ASR_ARTIFACT_ROOT: /models
+    volumes:
+      - ${MODEL_ROOT}:/models:ro
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["${ASR_REALTIME_GPU_DEVICE:-0}"]
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "python3.11", "-m", "asr_service.healthcheck", "--port", "50051"]
+      interval: 15s
+      timeout: 10s
+      start_period: 300s
+      retries: 5
+    logging: *bounded-logs
+
+  asr-batch:
+    build:
+      context: ../backend
+      dockerfile: asr_service/Dockerfile
+    command: ["--mode", "batch", "--port", "50052"]
+    restart: unless-stopped
+    environment:
+      ASR_MODE: batch
+      ASR_DEVICE: cuda
+      CUDA_VISIBLE_DEVICES: ${ASR_BATCH_GPU_DEVICE:-1}
+      ASR_ARTIFACT_ROOT: /models
+    volumes:
+      - ${MODEL_ROOT}:/models:ro
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["${ASR_BATCH_GPU_DEVICE:-1}"]
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "python3.11", "-m", "asr_service.healthcheck", "--port", "50052"]
+      interval: 15s
+      timeout: 10s
+      start_period: 300s
+      retries: 5
+    logging: *bounded-logs
+
   backend:
     build:
       context: ../backend
@@ -51,12 +107,16 @@ services:
     depends_on:
       redis: { condition: service_healthy }
       cosyvoice-worker: { condition: service_healthy }
+      asr-realtime: { condition: service_healthy }
+      asr-batch: { condition: service_healthy }
     environment:
       CALL_ASR_DATA_DIR: /data
       CALL_ASR_DATABASE_PATH: /data/call_asr.sqlite3
       CALL_ASR_COSYVOICE_WORKER_URL: http://cosyvoice-worker:18081
       CALL_ASR_COSYVOICE_WORKER_TOKEN: ${COSYVOICE_WORKER_TOKEN}
       CALL_ASR_REDIS_URL: redis://redis:6379/0
+      CALL_ASR_ASR_REALTIME_TARGET: asr-realtime:50051
+      CALL_ASR_ASR_BATCH_TARGET: asr-batch:50052
     volumes:
       - ${DATA_ROOT}:/data
     ports:

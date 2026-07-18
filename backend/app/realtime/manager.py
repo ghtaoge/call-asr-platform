@@ -9,6 +9,7 @@ from app.core.inference_gate import InferenceGate
 from app.jobs.manager import JobManager
 from app.realtime.protocol import FrameProtocolError, decode_audio_frame
 from app.realtime.session import RealtimeSession
+from app.realtime.rpc_session import RpcRealtimeSession
 from app.sessions.pipeline import AnalysisPipeline
 from app.sessions.repository import SessionRepository
 
@@ -26,6 +27,7 @@ class RealtimeManager:
         clusterer_factory: Any,
         data_dir: Path,
         gate: InferenceGate | None = None,
+        rpc_client: Any | None = None,
     ) -> None:
         self.repository = repository
         self.jobs = jobs
@@ -34,9 +36,10 @@ class RealtimeManager:
         self.clusterer_factory = clusterer_factory
         self.data_dir = data_dir
         self.gate = gate
+        self.rpc_client = rpc_client
         self._gated_sessions: set[str] = set()
         self.executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="realtime-asr")
-        self.sessions: dict[str, RealtimeSession] = {}
+        self.sessions: dict[str, RealtimeSession | RpcRealtimeSession] = {}
 
     async def start(self, session_id: str, message: dict[str, Any]) -> list[dict[str, Any]]:
         if message.get("codec") != "pcm_s16le" or message.get("sample_rate") != 16_000:
@@ -51,20 +54,28 @@ class RealtimeManager:
             }]
         await self.repository.create_session(session_id, "realtime")
         loop = asyncio.get_running_loop()
-        logger.info("Opening realtime ASR session: %s", session_id)
-        asr_session = await loop.run_in_executor(self.executor, self.asr_provider.open_session)
         clusterer = self.clusterer_factory()
         await loop.run_in_executor(self.executor, clusterer.warmup)
+        logger.info("Opening realtime ASR session: %s", session_id)
         logger.info("Realtime ASR session ready: %s", session_id)
         if self.gate:
             await self.gate.realtime_started()
             self._gated_sessions.add(session_id)
-        session = RealtimeSession(
-            session_id,
-            asr_session,
-            clusterer,
-            self.data_dir / session_id / "source.wav",
-        )
+        if self.rpc_client:
+            session = RpcRealtimeSession(
+                session_id,
+                self.rpc_client.open_stream("default", session_id),
+                clusterer,
+                self.data_dir / session_id / "source.wav",
+            )
+        else:
+            asr_session = await loop.run_in_executor(self.executor, self.asr_provider.open_session)
+            session = RealtimeSession(
+                session_id,
+                asr_session,
+                clusterer,
+                self.data_dir / session_id / "source.wav",
+            )
         self.sessions[session_id] = session
         return [{
             "type": "session_started",
@@ -82,8 +93,11 @@ class RealtimeManager:
             frame = decode_audio_frame(session_id, raw)
         except FrameProtocolError as exc:
             return [self._error("invalid_audio_frame", str(exc))]
-        loop = asyncio.get_running_loop()
-        events = await loop.run_in_executor(self.executor, session.accept, frame)
+        if isinstance(session, RpcRealtimeSession):
+            events = await session.accept(frame)
+        else:
+            loop = asyncio.get_running_loop()
+            events = await loop.run_in_executor(self.executor, session.accept, frame)
         return await self._persist_final_events(session, events)
 
     async def control(
@@ -116,8 +130,11 @@ class RealtimeManager:
             return events
         if event_type == "end_session":
             try:
-                loop = asyncio.get_running_loop()
-                events, path = await loop.run_in_executor(self.executor, session.end)
+                if isinstance(session, RpcRealtimeSession):
+                    events, path = await session.end()
+                else:
+                    loop = asyncio.get_running_loop()
+                    events, path = await loop.run_in_executor(self.executor, session.end)
                 events = await self._persist_final_events(session, events)
                 await self.repository.save_segments(session_id, session.segments)
                 created = await self.jobs.create_realtime_analysis(
@@ -137,7 +154,7 @@ class RealtimeManager:
 
     async def _persist_final_events(
         self,
-        session: RealtimeSession,
+        session: RealtimeSession | RpcRealtimeSession,
         events: list[dict[str, Any]],
     ) -> list[dict[str, Any]]:
         final_ids = {
@@ -173,14 +190,19 @@ class RealtimeManager:
     async def close(self) -> None:
         for session in self.sessions.values():
             if not session.closed:
-                session.end()
+                if isinstance(session, RpcRealtimeSession):
+                    await session.end()
+                else:
+                    session.end()
+            if isinstance(session, RpcRealtimeSession):
+                await session.close()
         if self.gate:
             for session_id in list(self._gated_sessions):
                 await self.gate.realtime_ended()
                 self._gated_sessions.remove(session_id)
         self.executor.shutdown(wait=True, cancel_futures=False)
 
-    def _require(self, session_id: str) -> RealtimeSession:
+    def _require(self, session_id: str) -> RealtimeSession | RpcRealtimeSession:
         try:
             return self.sessions[session_id]
         except KeyError as exc:

@@ -57,7 +57,7 @@ Windows 开发机如果未启动工作进程，普通话和英语默认音色会
 
 ### Linux Docker Compose
 
-正式环境建议使用仓库内的 Compose 编排。它包含 Redis 持久队列、CosyVoice GPU 工作进程和主后端，模型目录只读挂载，日志默认按 `20 MB x 5` 轮转。
+正式环境建议使用仓库内的 Compose 编排。它包含 Redis 持久队列、GPU 隔离的 `asr-realtime`/`asr-batch`、CosyVoice 工作进程和主后端，模型目录只读挂载，日志默认按 `20 MB x 5` 轮转。
 
 ```bash
 cp deploy/.env.example deploy/.env
@@ -68,6 +68,8 @@ cp deploy/.env.example deploy/.env
 - `MODEL_ROOT` 指向已经离线准备好的模型根目录，必须包含 `Fun-CosyVoice3-0.5B` 和 `CosyVoice-300M-SFT`。
 - `DATA_ROOT` 指向任务数据持久化目录。
 - `TTS_GPU_DEVICE` 是分配给 CosyVoice 的宿主机 GPU 编号。
+- `ASR_REALTIME_GPU_DEVICE` 默认为 `0`，`ASR_BATCH_GPU_DEVICE` 默认为 `1`。
+- `MODEL_ROOT` 必须同时提供 ASR 和 CosyVoice 所需的离线模型目录；容器不会在线下载模型。
 - `COSYVOICE_WORKER_TOKEN` 必须替换为足够长的随机令牌。
 
 ```bash
@@ -76,7 +78,25 @@ docker compose --env-file deploy/.env -f deploy/docker-compose.yml up -d --build
 docker compose --env-file deploy/.env -f deploy/docker-compose.yml ps
 ```
 
-工作进程启动时加载两个模型，首次就绪可能需要数分钟。`/health/live` 只说明进程存活，`/health/ready` 只有模型加载成功后才返回成功。主后端使用 Redis Stream 保存队列状态；进程重启后，数据库中尚未完成的任务会重新入队，临时故障按配置的间隔自动重试。
+ASR 服务和 CosyVoice 工作进程启动时都会加载模型，首次就绪可能需要数分钟。ASR gRPC `Check` 返回 `SERVING` 后 Compose 才启动主后端；CosyVoice 的 `/health/live` 只说明进程存活，`/health/ready` 只有模型加载成功后才返回成功。主后端使用 Redis Stream 保存 TTS 队列状态；进程重启后，数据库中尚未完成的任务会重新入队，临时故障按配置的间隔自动重试。
+
+模型目录可先通过离线清单脚本导出并核验：
+
+```bash
+python backend/scripts/export_asr_models.py \
+  --source /offline/models/paraformer \
+  --output /offline/artifacts/asr-realtime \
+  --model-id iic/speech_paraformer-large_asr_nat-zh-cn-16k-common-vocab8404-online \
+  --revision master
+```
+
+使用授权录音执行并发基准，报告未通过门禁时不要切换生产流量：
+
+```bash
+python backend/scripts/bench_asr_service.py \
+  --target asr-realtime:50051 --concurrency 20,50,100 \
+  --duration 600 --report output/asr-benchmark.json --enforce
+```
 
 ## 环境变量
 
@@ -95,6 +115,9 @@ docker compose --env-file deploy/.env -f deploy/docker-compose.yml ps
 | `CALL_ASR_TTS_WORKER_STARTUP_GRACE_SECONDS` | `300` | 工作进程启动宽限时间 |
 | `CALL_ASR_REDIS_URL` | 空 | Redis Stream 地址；为空时使用进程内队列 |
 | `CALL_ASR_TTS_RETRY_DELAYS_SECONDS` | `5,15,30,60,120` | 临时故障重试间隔 |
+| `CALL_ASR_ASR_REALTIME_TARGET` | 空 | 实时 ASR gRPC 地址；Compose 为 `asr-realtime:50051` |
+| `CALL_ASR_ASR_BATCH_TARGET` | 空 | 离线 ASR gRPC 地址；Compose 为 `asr-batch:50052` |
+| `CALL_ASR_ASR_RPC_TIMEOUT_SECONDS` | `10` | ASR 服务启动和健康检查超时 |
 | `CALL_ASR_TTS_RETENTION_DAYS` | `7` | 临时音色与合成音频保留天数 |
 | `CALL_ASR_TTS_MAX_REFERENCE_BYTES` | `20971520` | 参考音频上限 |
 | `VITE_API_BASE` | `http://127.0.0.1:8000` | 前端访问的后端地址 |

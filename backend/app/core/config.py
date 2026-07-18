@@ -41,6 +41,9 @@ class Settings(BaseSettings):
     tts_worker_startup_grace_seconds: float = 300.0
     redis_url: str | None = None
     tts_retry_delays_seconds: str = "5,15,30,60,120"
+    asr_realtime_target: str | None = None
+    asr_batch_target: str | None = None
+    asr_rpc_timeout_seconds: float = 10.0
 
     model_config = SettingsConfigDict(env_prefix="CALL_ASR_", env_file=".env", extra="ignore")
 

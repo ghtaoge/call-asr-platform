@@ -1,0 +1,65 @@
+syntax = "proto3";
+
+package callasr.v1;
+
+service AsrService {
+  rpc StreamRecognize(stream AudioFrame) returns (stream RecognitionEvent);
+  rpc BatchRecognize(BatchRequest) returns (BatchResponse);
+  rpc Check(HealthRequest) returns (HealthResponse);
+}
+
+message AudioFrame {
+  string tenant_id = 1;
+  string call_id = 2;
+  string stream_id = 3;
+  string speaker = 4;
+  uint64 sequence = 5;
+  uint64 captured_at_ms = 6;
+  bytes pcm_s16le = 7;
+  bool end_of_stream = 8;
+}
+
+message RecognitionEvent {
+  string call_id = 1;
+  string stream_id = 2;
+  string type = 3;
+  uint64 ack_sequence = 4;
+  int64 start_ms = 5;
+  int64 end_ms = 6;
+  string text = 7;
+  bool is_final = 8;
+  string error_code = 9;
+}
+
+message BatchRequest {
+  string tenant_id = 1;
+  string job_id = 2;
+  repeated BatchChannel channels = 3;
+}
+
+message BatchChannel {
+  string speaker = 1;
+  bytes wav = 2;
+}
+
+message BatchSegment {
+  string speaker = 1;
+  int64 start_ms = 2;
+  int64 end_ms = 3;
+  string text = 4;
+  float confidence = 5;
+}
+
+message BatchResponse {
+  repeated BatchSegment segments = 1;
+  string model_version = 2;
+}
+
+message HealthRequest {}
+
+message HealthResponse {
+  string status = 1;
+  string model_version = 2;
+  uint32 queue_depth = 3;
+  string artifact_checksum = 4;
+}

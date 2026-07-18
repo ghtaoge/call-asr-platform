@@ -1,3 +1,4 @@
+import asyncio
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -5,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import health, jobs, offline, realtime, tts, url
 from app.asr.model_registry import ModelRegistry
+from app.asr_rpc.client import AsrRpcClient, AsrRpcSyncClient
 from app.asr.sensevoice_provider import SenseVoiceProvider
 from app.audio.downloader import SafeAudioDownloader
 from app.audio.preprocessor import AudioPreprocessor
@@ -52,6 +54,10 @@ async def lifespan(app: FastAPI):
     registry = ModelRegistry(device=settings.resolved_device)
     audio = AudioPreprocessor()
     asr_provider = SenseVoiceProvider(model_loader=registry.sensevoice)
+    batch_rpc = None
+    if settings.asr_batch_target:
+        batch_rpc = AsrRpcSyncClient(settings.asr_batch_target, settings.asr_rpc_timeout_seconds)
+        await asyncio.to_thread(batch_rpc.start)
     pipeline = AnalysisPipeline(
         audio=audio,
         asr=asr_provider,
@@ -59,6 +65,7 @@ async def lifespan(app: FastAPI):
         sensitive_store=sensitive_store,
         compliance=ComplianceRuleEngine(),
         quality=QualityScorer(),
+        batch_rpc=batch_rpc,
     )
     manager = JobManager(
         jobs=jobs_repository,
@@ -78,6 +85,13 @@ async def lifespan(app: FastAPI):
     )
     app.state.job_manager = manager
     inference_gate = InferenceGate()
+    realtime_rpc = None
+    if settings.asr_realtime_target:
+        realtime_rpc = AsrRpcClient(
+            settings.asr_realtime_target,
+            settings.asr_rpc_timeout_seconds,
+        )
+        await realtime_rpc.start()
     realtime_manager = RealtimeManager(
         repository=sessions_repository,
         jobs=manager,
@@ -89,6 +103,7 @@ async def lifespan(app: FastAPI):
         clusterer_factory=lambda: TwoSpeakerClusterer(registry.speaker_embedding),
         data_dir=settings.data_dir / "realtime",
         gate=inference_gate,
+        rpc_client=realtime_rpc,
     )
     app.state.realtime_manager = realtime_manager
     tts_queue = RedisTtsQueue.from_url(settings.redis_url) if settings.redis_url else InMemoryTtsQueue()
@@ -119,6 +134,10 @@ async def lifespan(app: FastAPI):
         yield
     finally:
         await realtime_manager.close()
+        if realtime_rpc:
+            await realtime_rpc.close()
+        if batch_rpc:
+            batch_rpc.close()
         await tts_manager.close()
         await manager.close()
 
