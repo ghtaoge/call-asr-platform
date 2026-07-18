@@ -26,6 +26,7 @@ from app.summary.deepseek import DeepSeekSummaryProvider
 from app.tts.manager import TtsManager
 from app.tts.provider import CosyVoiceWorkerProvider
 from app.tts.repository import TtsRepository
+from app.tts.queue import InMemoryTtsQueue, RedisTtsQueue
 from app.tts.storage import TtsStorage
 
 
@@ -90,6 +91,12 @@ async def lifespan(app: FastAPI):
         gate=inference_gate,
     )
     app.state.realtime_manager = realtime_manager
+    tts_queue = RedisTtsQueue.from_url(settings.redis_url) if settings.redis_url else InMemoryTtsQueue()
+    retry_delays = tuple(
+        int(value.strip())
+        for value in settings.tts_retry_delays_seconds.split(",")
+        if value.strip()
+    )
     tts_manager = TtsManager(
         repository=TtsRepository(settings.database_path),
         storage=TtsStorage(settings.tts_dir, settings.tts_max_reference_bytes),
@@ -102,6 +109,9 @@ async def lifespan(app: FastAPI):
         ),
         gate=inference_gate,
         retention_days=settings.tts_retention_days,
+        health_check_seconds=settings.tts_health_check_seconds,
+        queue=tts_queue,
+        retry_delays_seconds=retry_delays,
     )
     await tts_manager.start()
     app.state.tts_manager = tts_manager

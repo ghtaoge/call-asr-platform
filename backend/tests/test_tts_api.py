@@ -32,6 +32,16 @@ class FakeTtsManager:
             gender="female",
         )]
 
+    async def health(self):
+        from app.tts.models import TtsHealthResponse, TtsHealthStatus
+
+        return TtsHealthResponse(
+            status=TtsHealthStatus.ready,
+            model="CosyVoice",
+            message="语音合成服务可用",
+            checked_at=datetime.now(UTC),
+        )
+
     async def create_job(self, voice_id, text):
         return TtsJobResponse(job_id="tts_1", voice_id=voice_id, status=TtsJobStatus.queued)
 
@@ -87,3 +97,10 @@ def test_lists_default_voices_and_accepts_preset_job(tmp_path):
     )
     assert created.status_code == 202
     assert created.json()["voice_id"] == "preset:zh_female"
+
+
+def test_tts_health_is_available_before_submission(tmp_path):
+    client = client_with(FakeTtsManager(tmp_path / "result.wav"))
+    response = client.get("/api/tts/health")
+    assert response.status_code == 200
+    assert response.json()["status"] == "ready"

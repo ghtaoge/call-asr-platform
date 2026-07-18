@@ -1,14 +1,16 @@
 import { computed, onBeforeUnmount, ref } from "vue";
-import { cloneTtsVoice, createTtsJob, getTtsJob, getTtsPresetVoices, ttsAudioUrl } from "../api/client";
-import type { TtsJobResponse, TtsPresetVoice, TtsVoiceResponse } from "../types";
+import { cloneTtsVoice, createTtsJob, getTtsHealth, getTtsJob, getTtsPresetVoices, ttsAudioUrl } from "../api/client";
+import type { TtsHealth, TtsJobResponse, TtsPresetVoice, TtsVoiceResponse } from "../types";
 
 export function useTts() {
   const voice = ref<TtsVoiceResponse>();
   const presets = ref<TtsPresetVoice[]>([]);
   const selectedPresetVoiceId = ref("");
   const job = ref<TtsJobResponse>();
+  const health = ref<TtsHealth>();
   const error = ref("");
   let timer: ReturnType<typeof setTimeout> | undefined;
+  let healthTimer: ReturnType<typeof setTimeout> | undefined;
   let generation = 0;
 
   const isWorking = computed(() => job.value?.status === "queued" || job.value?.status === "running");
@@ -23,6 +25,24 @@ export function useTts() {
       }
     } catch (cause) {
       error.value = cause instanceof Error ? cause.message : "无法获取默认音色";
+    }
+  }
+
+  async function loadHealth() {
+    if (healthTimer) clearTimeout(healthTimer);
+    try {
+      health.value = await getTtsHealth();
+    } catch (cause) {
+      health.value = {
+        status: "unavailable",
+        queue_depth: 0,
+        fallback_available: false,
+        error_code: "health_request_failed",
+        message: cause instanceof Error ? cause.message : "无法获取语音合成服务状态",
+        checked_at: new Date().toISOString()
+      };
+    } finally {
+      healthTimer = setTimeout(() => void loadHealth(), 5000);
     }
   }
 
@@ -78,17 +98,22 @@ export function useTts() {
     error.value = "";
   }
 
-  onBeforeUnmount(stopPolling);
+  onBeforeUnmount(() => {
+    stopPolling();
+    if (healthTimer) clearTimeout(healthTimer);
+  });
   return {
     voice,
     presets,
     selectedPresetVoiceId,
+    health,
     job,
     error,
     isWorking,
     audioUrl,
     downloadUrl,
     loadPresets,
+    loadHealth,
     uploadVoice,
     synthesize,
     resetResult

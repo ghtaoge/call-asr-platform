@@ -24,6 +24,14 @@ class RecordingClient:
         Path(self.json["output_path"]).write_bytes(b"RIFF" + b"x" * 2048)
         return httpx.Response(200, request=httpx.Request("POST", args[0]))
 
+    async def get(self, *args, **kwargs):
+        self.headers = kwargs["headers"]
+        return httpx.Response(
+            200,
+            json={"status": "ready", "model": "CosyVoice"},
+            request=httpx.Request("GET", args[0]),
+        )
+
     async def aclose(self):
         pass
 
@@ -60,6 +68,18 @@ async def test_provider_sends_controlled_preset_speaker(monkeypatch, tmp_path):
 
     assert client.json["preset_speaker"] == "中文女"
     assert "prompt_path" not in client.json
+    await provider.close()
+
+
+async def test_provider_health_uses_worker_token(monkeypatch):
+    client = RecordingClient()
+    monkeypatch.setattr("app.tts.provider.httpx.AsyncClient", lambda **kwargs: client)
+    provider = CosyVoiceWorkerProvider("http://127.0.0.1:18081", "worker-token")
+
+    result = await provider.health()
+
+    assert result["status"] == "ready"
+    assert client.headers["X-Worker-Token"] == "worker-token"
     await provider.close()
 
 

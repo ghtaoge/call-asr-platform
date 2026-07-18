@@ -129,6 +129,16 @@ export interface TtsPresetVoice {
   gender: "female" | "male";
 }
 
+export interface TtsHealth {
+  status: "starting" | "ready" | "busy" | "unavailable";
+  model?: string;
+  queue_depth: number;
+  error_code?: string;
+  fallback_available: boolean;
+  message: string;
+  checked_at: string;
+}
+
 export interface TtsJobResponse {
   job_id: string;
   voice_id: string;

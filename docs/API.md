@@ -125,6 +125,26 @@ WS /ws/realtime/{session_id}
 
 ## TTS
 
+查询 TTS 服务状态：
+
+```http
+GET /api/tts/health
+```
+
+```json
+{
+  "status": "ready",
+  "model": "Fun-CosyVoice3-0.5B",
+  "queue_depth": 0,
+  "error_code": null,
+  "fallback_available": false,
+  "message": "CosyVoice 服务可用",
+  "checked_at": "2026-07-18T10:00:00Z"
+}
+```
+
+`status` 可取 `starting`、`ready`、`busy` 或 `unavailable`。Windows 开发机的普通话/英语系统语音兜底可用时，`fallback_available=true`；自定义声音复刻仍要求 CosyVoice 为 `ready` 或 `busy`。
+
 获取可选默认音色：
 
 ```http

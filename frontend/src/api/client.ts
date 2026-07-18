@@ -2,6 +2,7 @@ import type {
   AnalysisResult,
   JobCreateResponse,
   JobStatusResponse,
+  TtsHealth,
   TtsJobResponse,
   TtsPresetVoice,
   TtsVoiceResponse
@@ -64,6 +65,10 @@ export function cloneTtsVoice(file: File, consent: boolean): Promise<TtsVoiceRes
 
 export function getTtsPresetVoices(): Promise<TtsPresetVoice[]> {
   return requestJson("/api/tts/voices/presets");
+}
+
+export function getTtsHealth(): Promise<TtsHealth> {
+  return requestJson("/api/tts/health");
 }
 
 export function createTtsJob(voiceId: string, text: string): Promise<TtsJobResponse> {

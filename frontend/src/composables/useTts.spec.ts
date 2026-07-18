@@ -7,6 +7,7 @@ const api = vi.hoisted(() => ({
   cloneTtsVoice: vi.fn(),
   createTtsJob: vi.fn(),
   getTtsJob: vi.fn(),
+  getTtsHealth: vi.fn(),
   getTtsPresetVoices: vi.fn(),
   ttsAudioUrl: vi.fn((jobId: string, download = false) =>
     `/api/tts/jobs/${jobId}/audio${download ? "?download=true" : ""}`
@@ -74,6 +75,30 @@ describe("useTts", () => {
 
     expect(tts.presets.value).toHaveLength(2);
     expect(tts.selectedPresetVoiceId.value).toBe("preset:zh_female");
+    wrapper.unmount();
+  });
+
+  it("loads worker health and records an unavailable state", async () => {
+    api.getTtsHealth.mockResolvedValue({
+      status: "unavailable",
+      queue_depth: 0,
+      fallback_available: false,
+      error_code: "worker_unavailable",
+      message: "语音合成服务暂不可用",
+      checked_at: "2026-07-18T00:00:00Z"
+    });
+    let tts!: ReturnType<typeof useTts>;
+    const wrapper = mount(defineComponent({
+      setup() {
+        tts = useTts();
+        return () => h("div");
+      }
+    }));
+
+    await tts.loadHealth();
+
+    expect(tts.health.value?.status).toBe("unavailable");
+    expect(tts.health.value?.error_code).toBe("worker_unavailable");
     wrapper.unmount();
   });
 });

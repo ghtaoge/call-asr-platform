@@ -81,6 +81,11 @@ h1, h2, h3, p { margin: 0; }
 .consentCheck { display: inline-flex; align-items: center; gap: 7px; color: #4f616c; font-size: 13px; }
 .voiceReady { padding: 4px 8px; color: #0d654f; background: #e5f5ef; border-radius: 4px; font-size: 12px; }
 .ttsHint, .promptText { color: #70808a; font-size: 12px; }
+.ttsServiceState { min-height: 36px; padding: 8px 10px; display: flex; align-items: center; gap: 7px; color: #4f616c; background: #f2f6f7; border-left: 3px solid #7f929d; font-size: 12px; }
+.ttsServiceState.ready { color: #0d654f; background: #edf8f4; border-left-color: #16835f; }
+.ttsServiceState.busy { color: #765214; background: #fff8e5; border-left-color: #d49420; }
+.ttsServiceState.unavailable { color: #96372c; background: #fff3f1; border-left-color: #c74438; }
+.ttsServiceState small { margin-left: auto; color: inherit; }
 .ttsError { color: #a12828; font-size: 13px; }
 .ttsSubmit { width: fit-content; }
 .ttsResult { padding: 16px 18px; display: flex; align-items: center; gap: 12px; border-top: 1px solid #e7ecef; }

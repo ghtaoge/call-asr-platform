@@ -55,6 +55,29 @@ $env:CALL_ASR_COSYVOICE_WORKER_TOKEN=$env:COSYVOICE_WORKER_TOKEN
 
 Windows 开发机如果未启动工作进程，普通话和英语默认音色会自动调用系统 SAPI 生成 WAV；这只是可用性兜底，不支持自定义声音复刻，也不代表 CosyVoice 的音色质量。粤语、日语和韩语默认音色仍要求 CosyVoice 工作进程在线。
 
+### Linux Docker Compose
+
+正式环境建议使用仓库内的 Compose 编排。它包含 Redis 持久队列、CosyVoice GPU 工作进程和主后端，模型目录只读挂载，日志默认按 `20 MB x 5` 轮转。
+
+```bash
+cp deploy/.env.example deploy/.env
+```
+
+编辑 `deploy/.env`：
+
+- `MODEL_ROOT` 指向已经离线准备好的模型根目录，必须包含 `Fun-CosyVoice3-0.5B` 和 `CosyVoice-300M-SFT`。
+- `DATA_ROOT` 指向任务数据持久化目录。
+- `TTS_GPU_DEVICE` 是分配给 CosyVoice 的宿主机 GPU 编号。
+- `COSYVOICE_WORKER_TOKEN` 必须替换为足够长的随机令牌。
+
+```bash
+docker compose --env-file deploy/.env -f deploy/docker-compose.yml config --quiet
+docker compose --env-file deploy/.env -f deploy/docker-compose.yml up -d --build
+docker compose --env-file deploy/.env -f deploy/docker-compose.yml ps
+```
+
+工作进程启动时加载两个模型，首次就绪可能需要数分钟。`/health/live` 只说明进程存活，`/health/ready` 只有模型加载成功后才返回成功。主后端使用 Redis Stream 保存队列状态；进程重启后，数据库中尚未完成的任务会重新入队，临时故障按配置的间隔自动重试。
+
 ## 环境变量
 
 | 名称 | 默认值 | 说明 |
@@ -68,6 +91,10 @@ Windows 开发机如果未启动工作进程，普通话和英语默认音色会
 | `DEEPSEEK_MODEL` | `deepseek-v4-pro` | 摘要模型名称 |
 | `CALL_ASR_COSYVOICE_WORKER_URL` | `http://127.0.0.1:18081` | TTS 工作进程地址 |
 | `CALL_ASR_COSYVOICE_WORKER_TOKEN` | 空 | 主后端调用令牌 |
+| `CALL_ASR_TTS_HEALTH_CHECK_SECONDS` | `5` | TTS 工作进程健康检查间隔 |
+| `CALL_ASR_TTS_WORKER_STARTUP_GRACE_SECONDS` | `300` | 工作进程启动宽限时间 |
+| `CALL_ASR_REDIS_URL` | 空 | Redis Stream 地址；为空时使用进程内队列 |
+| `CALL_ASR_TTS_RETRY_DELAYS_SECONDS` | `5,15,30,60,120` | 临时故障重试间隔 |
 | `CALL_ASR_TTS_RETENTION_DAYS` | `7` | 临时音色与合成音频保留天数 |
 | `CALL_ASR_TTS_MAX_REFERENCE_BYTES` | `20971520` | 参考音频上限 |
 | `VITE_API_BASE` | `http://127.0.0.1:8000` | 前端访问的后端地址 |
@@ -79,3 +106,4 @@ Windows 开发机如果未启动工作进程，普通话和英语默认音色会
 - 将 DeepSeek Key、工作进程令牌放入密钥管理系统，不写入镜像或仓库。
 - 为 SQLite 和 `backend/data` 设置备份、容量监控和定期清理。
 - 根据 GPU 显存限制单机并发，并监控实时 ASR 延迟、任务失败率和 TTS 队列长度。
+- 使用 `GET /api/tts/health` 监控 `status`、`queue_depth` 和 `error_code`，对连续不可用状态告警。

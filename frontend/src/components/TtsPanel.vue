@@ -11,8 +11,14 @@ const tts = useTts();
 const activeVoiceId = computed(() => voiceMode.value === "preset"
   ? tts.selectedPresetVoiceId.value
   : tts.voice.value?.voice_id || "");
+const remoteReady = computed(() => tts.health.value?.status === "ready" || tts.health.value?.status === "busy");
+const fallbackReady = computed(() => voiceMode.value === "preset" && Boolean(tts.health.value?.fallback_available));
+const serviceReady = computed(() => remoteReady.value || fallbackReady.value);
 
-onMounted(() => void tts.loadPresets());
+onMounted(() => {
+  void tts.loadPresets();
+  void tts.loadHealth();
+});
 
 watch(() => props.initialText, (value) => {
   if (value !== undefined) text.value = value;
@@ -67,8 +73,13 @@ function synthesize() {
         <p v-if="!consent" class="ttsHint">请先确认声音使用授权</p>
         <p v-if="tts.voice.value" class="promptText">参考内容：{{ tts.voice.value.prompt_text }}</p>
       </template>
+      <div v-if="tts.health.value" :class="['ttsServiceState', tts.health.value.status]">
+        <LoaderCircle v-if="tts.health.value.status === 'starting'" class="spin" :size="16" />
+        <span>{{ fallbackReady && !remoteReady ? 'CosyVoice 不可用，默认音色将使用 Windows 系统语音' : tts.health.value.message }}</span>
+        <small v-if="tts.health.value.status === 'busy' && tts.health.value.queue_depth">前方 {{ tts.health.value.queue_depth }} 个任务</small>
+      </div>
       <p v-if="tts.error.value" class="ttsError">{{ tts.error.value }}</p>
-      <button class="primaryButton ttsSubmit" type="button" :disabled="!activeVoiceId || !text.trim() || tts.isWorking.value" @click="synthesize">
+      <button class="primaryButton ttsSubmit" type="button" :disabled="!activeVoiceId || !text.trim() || !serviceReady || tts.isWorking.value" @click="synthesize">
         <LoaderCircle v-if="tts.isWorking.value" class="spin" :size="17" /><Volume2 v-else :size="17" />
         {{ tts.job.value?.status === 'queued' ? '等待合成' : tts.isWorking.value ? '正在合成' : '开始合成' }}
       </button>

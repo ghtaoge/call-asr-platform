@@ -1,0 +1,67 @@
+services:
+  redis:
+    image: redis:7.4.2-alpine
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory-policy", "noeviction"]
+    restart: unless-stopped
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    logging: &bounded-logs
+      driver: json-file
+      options: { max-size: "20m", max-file: "5" }
+
+  cosyvoice-worker:
+    build:
+      context: ../backend
+      dockerfile: tts_worker/Dockerfile
+    restart: unless-stopped
+    environment:
+      CUDA_VISIBLE_DEVICES: ${TTS_GPU_DEVICE:-1}
+      COSYVOICE_MODEL_DIR: /models/Fun-CosyVoice3-0.5B
+      COSYVOICE_SFT_MODEL_DIR: /models/CosyVoice-300M-SFT
+      COSYVOICE_TTS_ROOT: /data/tts
+      COSYVOICE_WORKER_TOKEN: ${COSYVOICE_WORKER_TOKEN}
+    volumes:
+      - ${MODEL_ROOT}:/models:ro
+      - ${DATA_ROOT}:/data
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["${TTS_GPU_DEVICE:-1}"]
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD-SHELL", "python3.10 -c \"import os,urllib.request; r=urllib.request.Request('http://127.0.0.1:18081/health/ready',headers={'X-Worker-Token':os.environ['COSYVOICE_WORKER_TOKEN']}); urllib.request.urlopen(r,timeout=5)\""]
+      interval: 15s
+      timeout: 10s
+      start_period: 300s
+      retries: 5
+    logging: *bounded-logs
+
+  backend:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      redis: { condition: service_healthy }
+      cosyvoice-worker: { condition: service_healthy }
+    environment:
+      CALL_ASR_DATA_DIR: /data
+      CALL_ASR_DATABASE_PATH: /data/call_asr.sqlite3
+      CALL_ASR_COSYVOICE_WORKER_URL: http://cosyvoice-worker:18081
+      CALL_ASR_COSYVOICE_WORKER_TOKEN: ${COSYVOICE_WORKER_TOKEN}
+      CALL_ASR_REDIS_URL: redis://redis:6379/0
+    volumes:
+      - ${DATA_ROOT}:/data
+    ports:
+      - "8000:8000"
+    logging: *bounded-logs
+
+volumes:
+  redis-data:

@@ -55,7 +55,7 @@ async def test_restart_and_retention_cleanup_recover_stale_jobs(tmp_path):
 
     await repository.mark_running_failed()
     interrupted = await repository.require_job("tts_running")
-    assert interrupted.status == TtsJobStatus.failed
+    assert interrupted.status == TtsJobStatus.queued
     assert interrupted.error_code == "interrupted"
 
     async with aiosqlite.connect(database) as db:
@@ -69,6 +69,22 @@ async def test_restart_and_retention_cleanup_recover_stale_jobs(tmp_path):
     assert job_ids == ["tts_running"]
     with pytest.raises(KeyError):
         await repository.require_job("tts_running")
+
+
+async def test_retry_columns_and_queued_recovery(tmp_path):
+    repository = TtsRepository(tmp_path / "tts.sqlite3")
+    await repository.init()
+    now = datetime.now(UTC)
+    await repository.create_voice(
+        "voice_retry", tmp_path / "prompt.wav", "参考。", now + timedelta(days=1)
+    )
+    await repository.create_job("tts_retry", "voice_retry", "重试文本")
+    await repository.schedule_retry("tts_retry", 2, now + timedelta(seconds=30))
+
+    job = await repository.require_job("tts_retry")
+    assert job.status == TtsJobStatus.queued
+    assert job.attempt_count == 2
+    assert await repository.list_queued_job_ids() == ["tts_retry"]
 
 
 async def test_preset_job_does_not_require_temporary_voice(tmp_path):

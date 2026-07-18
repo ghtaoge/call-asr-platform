@@ -29,10 +29,21 @@ class TtsRepository:
                 CREATE TABLE IF NOT EXISTS tts_jobs (
                     id TEXT PRIMARY KEY, voice_id TEXT NOT NULL, text TEXT NOT NULL,
                     status TEXT NOT NULL, output_path TEXT, error_code TEXT, error_message TEXT,
+                    attempt_count INTEGER NOT NULL DEFAULT 0, next_attempt_at TEXT,
                     created_at TEXT NOT NULL, updated_at TEXT NOT NULL
                 )
                 """
             )
+            columns = {
+                row[1]
+                for row in await (await db.execute("PRAGMA table_info(tts_jobs)")).fetchall()
+            }
+            if "attempt_count" not in columns:
+                await db.execute(
+                    "ALTER TABLE tts_jobs ADD COLUMN attempt_count INTEGER NOT NULL DEFAULT 0"
+                )
+            if "next_attempt_at" not in columns:
+                await db.execute("ALTER TABLE tts_jobs ADD COLUMN next_attempt_at TEXT")
             await db.commit()
 
     async def create_voice(
@@ -77,7 +88,12 @@ class TtsRepository:
         now = datetime.now(UTC).isoformat()
         async with aiosqlite.connect(self.database_path) as db:
             await db.execute(
-                "INSERT INTO tts_jobs VALUES (?, ?, ?, ?, NULL, NULL, NULL, ?, ?)",
+                """
+                INSERT INTO tts_jobs (
+                    id, voice_id, text, status, output_path, error_code, error_message,
+                    attempt_count, next_attempt_at, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, NULL, NULL, NULL, 0, NULL, ?, ?)
+                """,
                 (job_id, voice_id, text, TtsJobStatus.queued.value, now, now),
             )
             await db.commit()
@@ -124,11 +140,31 @@ class TtsRepository:
         async with aiosqlite.connect(self.database_path) as db:
             await db.execute(
                 """
-                UPDATE tts_jobs SET status = 'failed', error_code = 'interrupted',
-                    error_message = '服务重启，语音合成任务已中断', updated_at = ?
+                UPDATE tts_jobs SET status = 'queued', error_code = 'interrupted',
+                    error_message = '服务重启，语音合成任务已重新排队', updated_at = ?
                 WHERE status = 'running'
                 """,
                 (datetime.now(UTC).isoformat(),),
+            )
+            await db.commit()
+
+    async def list_queued_job_ids(self) -> list[str]:
+        async with aiosqlite.connect(self.database_path) as db:
+            rows = await (await db.execute(
+                "SELECT id FROM tts_jobs WHERE status = 'queued' ORDER BY created_at"
+            )).fetchall()
+        return [str(row[0]) for row in rows]
+
+    async def schedule_retry(self, job_id: str, attempt: int, when: datetime) -> None:
+        async with aiosqlite.connect(self.database_path) as db:
+            await db.execute(
+                """
+                UPDATE tts_jobs SET status = 'queued', attempt_count = ?, next_attempt_at = ?,
+                    error_code = 'worker_unavailable',
+                    error_message = '语音合成服务恢复后将自动重试', updated_at = ?
+                WHERE id = ?
+                """,
+                (attempt, when.isoformat(), datetime.now(UTC).isoformat(), job_id),
             )
             await db.commit()
 

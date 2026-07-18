@@ -6,6 +6,14 @@ vi.mock("../api/client", () => ({
   cloneTtsVoice: vi.fn(),
   createTtsJob: vi.fn(),
   getTtsJob: vi.fn(),
+  getTtsHealth: vi.fn().mockResolvedValue({
+    status: "ready",
+    model: "CosyVoice",
+    queue_depth: 0,
+    fallback_available: false,
+    message: "语音合成服务可用",
+    checked_at: "2026-07-18T00:00:00Z"
+  }),
   getTtsPresetVoices: vi.fn().mockResolvedValue([
     { id: "zh_female", voice_id: "preset:zh_female", label: "普通话女声", language: "普通话", gender: "female" },
     { id: "zh_male", voice_id: "preset:zh_male", label: "普通话男声", language: "普通话", gender: "male" }

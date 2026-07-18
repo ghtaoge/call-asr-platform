@@ -1,4 +1,6 @@
+import asyncio
 import os
+from contextlib import asynccontextmanager
 from pathlib import Path
 from threading import Lock
 
@@ -10,13 +12,38 @@ from pydantic import BaseModel
 
 
 MODEL_ID = "Fun-CosyVoice3-0.5B-2512"
-MODEL = AutoModel(model_dir=os.environ["COSYVOICE_MODEL_DIR"])
+PRESET_MODEL_ID = "CosyVoice-300M-SFT"
+MODEL_DIR = os.environ["COSYVOICE_MODEL_DIR"]
 SFT_MODEL_DIR = os.environ["COSYVOICE_SFT_MODEL_DIR"]
-SFT_MODEL = None
 TOKEN = os.environ["COSYVOICE_WORKER_TOKEN"]
 TTS_ROOT = Path(os.environ["COSYVOICE_TTS_ROOT"]).resolve()
 INFERENCE_LOCK = Lock()
-app = FastAPI(title="CosyVoice Worker")
+MODEL = None
+SFT_MODEL = None
+READY = False
+LOAD_ERROR: str | None = None
+
+
+def _load_models() -> None:
+    global MODEL, SFT_MODEL, READY, LOAD_ERROR
+    try:
+        MODEL = AutoModel(model_dir=MODEL_DIR)
+        SFT_MODEL = AutoModel(model_dir=SFT_MODEL_DIR)
+        if not SFT_MODEL.list_available_spks():
+            raise RuntimeError("preset model has no speakers")
+        READY = True
+    except Exception as exc:
+        LOAD_ERROR = type(exc).__name__
+        raise
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    await asyncio.to_thread(_load_models)
+    yield
+
+
+app = FastAPI(title="CosyVoice Worker", lifespan=lifespan)
 
 
 class SynthesisRequest(BaseModel):
@@ -39,32 +66,43 @@ def _authorize(token: str | None) -> None:
         raise HTTPException(status_code=401, detail="invalid worker token")
 
 
-def _get_sft_model():
-    global SFT_MODEL
-    if SFT_MODEL is None:
-        SFT_MODEL = AutoModel(model_dir=SFT_MODEL_DIR)
-    return SFT_MODEL
+@app.get("/health/live")
+def health_live(x_worker_token: str | None = Header(default=None)):
+    _authorize(x_worker_token)
+    return {"status": "ok", "model": MODEL_ID}
+
+
+@app.get("/health/ready")
+def health_ready(x_worker_token: str | None = Header(default=None)):
+    _authorize(x_worker_token)
+    if not READY:
+        raise HTTPException(
+            status_code=503,
+            detail={"code": "model_not_ready", "load_error": LOAD_ERROR},
+        )
+    return {
+        "status": "ready",
+        "model": MODEL_ID,
+        "preset_model": PRESET_MODEL_ID,
+        "preset_model_loaded": True,
+    }
 
 
 @app.get("/health")
-def health(x_worker_token: str | None = Header(default=None)):
-    _authorize(x_worker_token)
-    return {
-        "status": "ok",
-        "model": MODEL_ID,
-        "preset_model": "CosyVoice-300M-SFT",
-        "preset_model_loaded": SFT_MODEL is not None,
-    }
+def health_legacy(x_worker_token: str | None = Header(default=None)):
+    return health_ready(x_worker_token)
 
 
 @app.post("/synthesize")
 def synthesize(body: SynthesisRequest, x_worker_token: str | None = Header(default=None)):
     _authorize(x_worker_token)
+    if not READY or MODEL is None or SFT_MODEL is None:
+        raise HTTPException(status_code=503, detail="model not ready")
     output_path = _safe_path(body.output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with INFERENCE_LOCK:
         if body.preset_speaker:
-            model = _get_sft_model()
+            model = SFT_MODEL
             if body.preset_speaker not in model.list_available_spks():
                 raise HTTPException(status_code=422, detail="preset speaker unavailable")
             results = model.inference_sft(body.text, body.preset_speaker, stream=False)

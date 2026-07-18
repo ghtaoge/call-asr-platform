@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import os
 import wave
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
@@ -14,11 +15,14 @@ from app.tts.models import (
     TtsJob,
     TtsJobResponse,
     TtsJobStatus,
+    TtsHealthResponse,
     TtsPresetVoiceResponse,
     TtsVoiceResponse,
 )
+from app.tts.health import TtsHealthCache
 from app.tts.presets import PRESET_VOICES, preset_from_voice_id
 from app.tts.provider import CosyVoiceWorkerProvider, TtsProviderError
+from app.tts.queue import InMemoryTtsQueue, TtsQueue
 from app.tts.repository import TtsRepository, VoiceExpiredError
 from app.tts.storage import TtsStorage, TtsStorageLimitError
 
@@ -40,6 +44,9 @@ class TtsManager:
         provider: CosyVoiceWorkerProvider,
         gate: InferenceGate,
         retention_days: int,
+        health_check_seconds: float = 5.0,
+        queue: TtsQueue | None = None,
+        retry_delays_seconds: tuple[int, ...] = (5, 15, 30, 60, 120),
     ) -> None:
         self.repository = repository
         self.storage = storage
@@ -48,14 +55,20 @@ class TtsManager:
         self.provider = provider
         self.gate = gate
         self.retention_days = retention_days
-        self.queue: asyncio.Queue[str | None] = asyncio.Queue()
+        self.health_check_seconds = health_check_seconds
+        self.health_cache = TtsHealthCache()
+        self.queue = queue or InMemoryTtsQueue()
+        self.retry_delays_seconds = retry_delays_seconds
         self.executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="tts-reference")
         self.worker: asyncio.Task[None] | None = None
+        self.health_worker: asyncio.Task[None] | None = None
+        self._closing = asyncio.Event()
         self._completed: dict[str, asyncio.Event] = {}
 
     async def start(self) -> None:
         await self.repository.init()
         await self.repository.mark_running_failed()
+        await self.queue.start()
         now = datetime.now(UTC)
         voice_ids, job_ids = await self.repository.delete_expired(
             now,
@@ -65,7 +78,39 @@ class TtsManager:
             self.storage.delete_voice(voice_id)
         for job_id in job_ids:
             self.storage.delete_job(job_id)
+        for job_id in await self.repository.list_queued_job_ids():
+            await self.queue.enqueue(job_id)
         self.worker = asyncio.create_task(self._run_queue(), name="tts-queue")
+        self.health_worker = asyncio.create_task(self._monitor_health(), name="tts-health")
+
+    async def health(self) -> TtsHealthResponse:
+        return self.health_cache.snapshot()
+
+    async def _monitor_health(self) -> None:
+        while not self._closing.is_set():
+            try:
+                payload = await self.provider.health()
+                self.health_cache.mark_ready(
+                    str(payload.get("model") or "CosyVoice"),
+                    await self.queue.depth(),
+                )
+            except TtsProviderError as exc:
+                self.health_cache.mark_unavailable(
+                    exc.code,
+                    exc.public_message,
+                    fallback_available=os.name == "nt",
+                )
+            except Exception:
+                logger.exception("Unexpected CosyVoice health check failure")
+                self.health_cache.mark_unavailable(
+                    "worker_health_failed",
+                    "语音合成服务状态检查失败",
+                    fallback_available=os.name == "nt",
+                )
+            try:
+                await asyncio.wait_for(self._closing.wait(), timeout=self.health_check_seconds)
+            except asyncio.TimeoutError:
+                pass
 
     async def create_voice(
         self,
@@ -138,7 +183,7 @@ class TtsManager:
         except VoiceExpiredError as exc:
             raise TtsValidationError("临时音色已过期，请重新上传参考音频") from exc
         self._completed[job_id] = asyncio.Event()
-        await self.queue.put(job_id)
+        await self.queue.enqueue(job_id)
         return self._response(job)
 
     def list_preset_voices(self) -> list[TtsPresetVoiceResponse]:
@@ -171,13 +216,19 @@ class TtsManager:
 
     async def _run_queue(self) -> None:
         while True:
-            job_id = await self.queue.get()
-            if job_id is None:
-                self.queue.task_done()
+            if self._closing.is_set():
                 return
+            delivery = await self.queue.next(timeout_ms=500)
+            if delivery is None:
+                continue
+            job_id = delivery.job_id
+            terminal = False
             try:
                 await self.gate.wait_for_background_slot()
                 job = await self.repository.require_job(job_id)
+                if job.status in {TtsJobStatus.completed, TtsJobStatus.failed, TtsJobStatus.expired}:
+                    terminal = True
+                    continue
                 await self.repository.set_job_status(job_id, TtsJobStatus.running)
                 output = self.storage.output_path(job_id)
                 preset = preset_from_voice_id(job.voice_id)
@@ -200,13 +251,25 @@ class TtsManager:
                     TtsJobStatus.completed,
                     output_path=output,
                 )
+                terminal = True
             except TtsProviderError as exc:
-                await self.repository.set_job_status(
-                    job_id,
-                    TtsJobStatus.failed,
-                    error_code=exc.code,
-                    error_message=exc.public_message,
-                )
+                current = await self.repository.require_job(job_id)
+                if exc.code in {"worker_unavailable", "worker_not_ready"} and current.attempt_count < len(self.retry_delays_seconds):
+                    delay = self.retry_delays_seconds[current.attempt_count]
+                    await self.repository.schedule_retry(
+                        job_id,
+                        current.attempt_count + 1,
+                        datetime.now(UTC) + timedelta(seconds=delay),
+                    )
+                    asyncio.create_task(self._enqueue_after(job_id, delay))
+                else:
+                    await self.repository.set_job_status(
+                        job_id,
+                        TtsJobStatus.failed,
+                        error_code=exc.code,
+                        error_message=exc.public_message,
+                    )
+                    terminal = True
             except Exception:
                 logger.exception("Unexpected TTS synthesis failure for job %s", job_id)
                 await self.repository.set_job_status(
@@ -215,15 +278,25 @@ class TtsManager:
                     error_code="synthesis_failed",
                     error_message="语音合成失败",
                 )
+                terminal = True
             finally:
-                if event := self._completed.get(job_id):
+                await self.queue.ack(delivery.message_id)
+                if terminal and (event := self._completed.get(job_id)):
                     event.set()
-                self.queue.task_done()
+
+    async def _enqueue_after(self, job_id: str, delay: int) -> None:
+        try:
+            await asyncio.wait_for(self._closing.wait(), timeout=delay)
+        except asyncio.TimeoutError:
+            await self.queue.enqueue(job_id)
 
     async def close(self) -> None:
+        self._closing.set()
+        if self.health_worker:
+            await self.health_worker
         if self.worker:
-            await self.queue.put(None)
             await self.worker
+        await self.queue.close()
         self.executor.shutdown(wait=True, cancel_futures=False)
         await self.provider.close()
 

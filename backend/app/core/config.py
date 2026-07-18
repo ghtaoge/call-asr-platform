@@ -37,6 +37,10 @@ class Settings(BaseSettings):
     cosyvoice_timeout_seconds: float = 180.0
     tts_retention_days: int = 7
     tts_max_reference_bytes: int = 20 * 1024 * 1024
+    tts_health_check_seconds: float = 5.0
+    tts_worker_startup_grace_seconds: float = 300.0
+    redis_url: str | None = None
+    tts_retry_delays_seconds: str = "5,15,30,60,120"
 
     model_config = SettingsConfigDict(env_prefix="CALL_ASR_", env_file=".env", extra="ignore")
 

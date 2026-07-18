@@ -22,6 +22,28 @@ class CosyVoiceWorkerProvider:
         # localhost requests from being redirected to an enterprise HTTP proxy.
         self.client = httpx.AsyncClient(timeout=timeout, trust_env=False)
 
+    async def health(self) -> dict[str, object]:
+        try:
+            response = await self.client.get(
+                f"{self.base_url}/health/ready",
+                headers={"X-Worker-Token": self.token},
+                timeout=10.0,
+            )
+            if response.status_code == 404:
+                response = await self.client.get(
+                    f"{self.base_url}/health",
+                    headers={"X-Worker-Token": self.token},
+                    timeout=10.0,
+                )
+        except httpx.HTTPError as exc:
+            raise TtsProviderError("worker_unavailable", "语音合成服务暂不可用") from exc
+        if response.status_code != 200:
+            raise TtsProviderError("worker_not_ready", "语音合成模型正在启动")
+        payload = response.json()
+        if payload.get("status") not in {"ok", "ready"}:
+            raise TtsProviderError("worker_not_ready", "语音合成模型正在启动")
+        return payload
+
     async def synthesize(
         self,
         text: str,

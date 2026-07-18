@@ -50,6 +50,16 @@ $env:CALL_ASR_COSYVOICE_WORKER_TOKEN=$env:COSYVOICE_WORKER_TOKEN
 
 工作进程默认监听 `127.0.0.1:18081`。令牌必须与主后端 `.env` 中的 `CALL_ASR_COSYVOICE_WORKER_TOKEN` 一致。详细步骤见 [部署文档](docs/DEPLOYMENT.md)。
 
+Linux 正式环境可使用 `deploy/docker-compose.yml` 启动 Redis、CosyVoice 工作进程和主后端。模型目录以只读方式挂载，模型文件不会在镜像构建或容器启动时自动下载：
+
+```bash
+cp deploy/.env.example deploy/.env
+# 修改 deploy/.env 中的 MODEL_ROOT、DATA_ROOT、GPU 编号和随机令牌
+docker compose --env-file deploy/.env -f deploy/docker-compose.yml up -d --build
+```
+
+`GET /api/tts/health` 可查看模型状态、队列深度和 Windows 系统语音兜底是否可用。
+
 ## 测试
 
 ```powershell

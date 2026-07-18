@@ -13,6 +13,13 @@ class TtsJobStatus(StrEnum):
     expired = "expired"
 
 
+class TtsHealthStatus(StrEnum):
+    starting = "starting"
+    ready = "ready"
+    busy = "busy"
+    unavailable = "unavailable"
+
+
 class TtsVoice(BaseModel):
     id: str
     prompt_path: Path
@@ -29,6 +36,8 @@ class TtsJob(BaseModel):
     output_path: Path | None = None
     error_code: str | None = None
     error_message: str | None = None
+    attempt_count: int = 0
+    next_attempt_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -45,6 +54,16 @@ class TtsPresetVoiceResponse(BaseModel):
     label: str
     language: str
     gender: str
+
+
+class TtsHealthResponse(BaseModel):
+    status: TtsHealthStatus
+    model: str | None = None
+    queue_depth: int = 0
+    error_code: str | None = None
+    fallback_available: bool = False
+    message: str
+    checked_at: datetime
 
 
 class TtsJobRequest(BaseModel):

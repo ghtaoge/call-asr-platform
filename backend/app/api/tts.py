@@ -5,6 +5,7 @@ from app.tts.manager import TtsManager, TtsValidationError
 from app.tts.models import (
     TtsJobRequest,
     TtsJobResponse,
+    TtsHealthResponse,
     TtsPresetVoiceResponse,
     TtsVoiceResponse,
 )
@@ -23,6 +24,11 @@ def _manager(request: Request) -> TtsManager:
 @router.get("/voices/presets", response_model=list[TtsPresetVoiceResponse])
 async def list_preset_voices(request: Request) -> list[TtsPresetVoiceResponse]:
     return _manager(request).list_preset_voices()
+
+
+@router.get("/health", response_model=TtsHealthResponse)
+async def tts_health(request: Request) -> TtsHealthResponse:
+    return await _manager(request).health()
 
 
 @router.post("/voices/clone", response_model=TtsVoiceResponse, status_code=201)
