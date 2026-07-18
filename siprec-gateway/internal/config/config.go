@@ -25,7 +25,7 @@ func Parse(values map[string]string) (Config, error) {
 	get := func(key, fallback string) string { if value := values[key]; value != "" { return value }; return fallback }
 	c := Config{SIPListen: get("SIP_LISTEN", "127.0.0.1:5061"), RTPBindIP: get("RTP_BIND_IP", "127.0.0.1"), ASRTarget: values["ASR_TARGET"], BackendTarget: values["BACKEND_TARGET"], SpoolRoot: get("SPOOL_ROOT", "/var/lib/call-asr/spool"), SpoolKey: values["SPOOL_MASTER_KEY"], MaxCalls: 100, RTPMin: 20000, RTPMax: 21999}
 	if value := values["MAX_CALLS"]; value != "" { parsed, err := strconv.Atoi(value); if err != nil || parsed < 1 { return Config{}, fmt.Errorf("MAX_CALLS must be positive") }; c.MaxCalls = parsed }
-	if c.SpoolKey == "" { return Config{}, fmt.Errorf("SPOOL_MASTER_KEY is required") }
+	if len(c.SpoolKey) != 32 { return Config{}, fmt.Errorf("SPOOL_MASTER_KEY must be exactly 32 bytes") }
 	allowlist := strings.TrimSpace(values["PBX_ALLOWLIST"])
 	if allowlist == "" { return Config{}, fmt.Errorf("PBX_ALLOWLIST is required") }
 	for _, cidr := range strings.Split(allowlist, ",") { _, network, err := net.ParseCIDR(strings.TrimSpace(cidr)); if err != nil { return Config{}, fmt.Errorf("invalid PBX_ALLOWLIST: %w", err) }; c.PBXAllowlist = append(c.PBXAllowlist, network) }

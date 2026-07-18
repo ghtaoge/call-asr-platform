@@ -120,7 +120,7 @@ python backend/scripts/bench_asr_service.py \
 | `CALL_ASR_ASR_RPC_TIMEOUT_SECONDS` | `10` | ASR 服务启动和健康检查超时 |
 | `PBX_ALLOWLIST` | 空 | SIPREC PBX 信令/RTP 来源 CIDR，生产必须显式配置 |
 | `PBX_INTERNAL_TOKEN` | 空 | 网关调用后端生命周期接口的令牌 |
-| `SPOOL_MASTER_KEY` | 空 | SIPREC 加密 spool 的 32 字节主密钥 |
+| `SPOOL_MASTER_KEY` | 空 | SIPREC 加密 spool 的 32 字节主密钥，生产使用密钥管理系统生成 |
 | `CALL_ASR_TTS_RETENTION_DAYS` | `7` | 临时音色与合成音频保留天数 |
 | `CALL_ASR_TTS_MAX_REFERENCE_BYTES` | `20971520` | 参考音频上限 |
 | `VITE_API_BASE` | `http://127.0.0.1:8000` | 前端访问的后端地址 |
