@@ -22,3 +22,13 @@ def test_compose_isolates_realtime_and_batch_asr_services():
     assert any(str(volume).endswith(":/models:ro") for volume in services["asr-realtime"]["volumes"])
     assert services["backend"]["environment"]["CALL_ASR_ASR_REALTIME_TARGET"] == "asr-realtime:50051"
     assert services["backend"]["environment"]["CALL_ASR_ASR_BATCH_TARGET"] == "asr-batch:50052"
+
+
+def test_compose_gateway_is_non_root_and_limits_media_ports():
+    path = Path(__file__).parents[2] / "deploy" / "docker-compose.yml"
+    compose = yaml.safe_load(path.read_text(encoding="utf-8"))
+    gateway = compose["services"]["siprec-gateway"]
+    assert gateway["read_only"] is True
+    assert "20000-21999:20000-21999/udp" in gateway["ports"]
+    assert gateway["environment"]["PBX_ALLOWLIST"] == "${PBX_ALLOWLIST}"
+    assert gateway["environment"]["SPOOL_MASTER_KEY"] == "${SPOOL_MASTER_KEY}"

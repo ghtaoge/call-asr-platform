@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { AudioLines, FileAudio, Speech } from "lucide-vue-next";
+import { AudioLines, FileAudio, Settings2, Speech } from "lucide-vue-next";
 
-defineProps<{ mode: "analysis" | "realtime" | "tts"; ttsEnabled?: boolean }>();
-const emit = defineEmits<{ change: [mode: "analysis" | "realtime" | "tts"] }>();
+defineProps<{ mode: "analysis" | "realtime" | "tts" | "sensitive"; ttsEnabled?: boolean }>();
+const emit = defineEmits<{ change: [mode: "analysis" | "realtime" | "tts" | "sensitive"] }>();
 </script>
 
 <template>
@@ -15,6 +15,9 @@ const emit = defineEmits<{ change: [mode: "analysis" | "realtime" | "tts"] }>();
     </button>
     <button :class="{ active: mode === 'tts' }" type="button" :disabled="!ttsEnabled" @click="emit('change', 'tts')">
       <Speech :size="17" />语音合成
+    </button>
+    <button :class="{ active: mode === 'sensitive' }" type="button" @click="emit('change', 'sensitive')">
+      <Settings2 :size="17" />敏感词设置
     </button>
   </nav>
 </template>

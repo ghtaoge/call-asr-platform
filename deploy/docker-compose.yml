@@ -99,6 +99,39 @@ services:
       retries: 5
     logging: *bounded-logs
 
+  siprec-gateway:
+    build:
+      context: ../siprec-gateway
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,noexec,nosuid
+    environment:
+      SIP_LISTEN: 0.0.0.0:5061
+      RTP_BIND_IP: 0.0.0.0
+      PBX_ALLOWLIST: ${PBX_ALLOWLIST}
+      ASR_TARGET: asr-realtime:50051
+      BACKEND_TARGET: http://backend:8000
+      PBX_INTERNAL_TOKEN: ${PBX_INTERNAL_TOKEN}
+      SPOOL_ROOT: /var/lib/call-asr/spool
+      SPOOL_MASTER_KEY: ${SPOOL_MASTER_KEY}
+    volumes:
+      - ${SPOOL_ROOT}:/var/lib/call-asr/spool
+    ports:
+      - "5061:5061/tcp"
+      - "5061:5061/udp"
+      - "20000-21999:20000-21999/udp"
+    depends_on:
+      asr-realtime: { condition: service_healthy }
+      backend: { condition: service_started }
+    healthcheck:
+      test: ["CMD", "/siprec-gateway", "--healthcheck"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    logging: *bounded-logs
+
   backend:
     build:
       context: ../backend
@@ -117,6 +150,7 @@ services:
       CALL_ASR_REDIS_URL: redis://redis:6379/0
       CALL_ASR_ASR_REALTIME_TARGET: asr-realtime:50051
       CALL_ASR_ASR_BATCH_TARGET: asr-batch:50052
+      CALL_ASR_PBX_INTERNAL_TOKEN: ${PBX_INTERNAL_TOKEN}
     volumes:
       - ${DATA_ROOT}:/data
     ports:

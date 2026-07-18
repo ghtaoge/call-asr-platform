@@ -140,7 +140,7 @@ function highlighted(segment: Segment): Array<{ text: string; hit?: SensitiveHit
         <span class="segmentBody">
           <span class="segmentText">
             <template v-for="(part, index) in highlighted(segment)" :key="`${segment.id}-${index}`">
-              <mark v-if="part.hit" :class="`hit-${part.hit.level}`" :title="`${part.hit.category} · ${part.hit.level}`">{{ part.text }}</mark>
+              <mark v-if="part.hit" :class="`hit-${part.hit.level}`" :title="`${part.hit.category} · ${part.hit.level}${part.hit.dictionary_version ? ` · 版本 ${part.hit.dictionary_version}` : ''}`">{{ part.text }}</mark>
               <span v-else>{{ part.text }}</span>
             </template>
           </span>

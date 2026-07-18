@@ -2,6 +2,7 @@
 import { computed, ref, watch } from "vue";
 import { AudioLines, CircleStop, Mic, Pause, Play, Radio } from "lucide-vue-next";
 import { useRealtimeSession } from "../composables/useRealtimeSession";
+import LiveCallList from "./LiveCallList.vue";
 import type { Speaker } from "../types";
 
 const emit = defineEmits<{ jobReady: [jobId: string] }>();
@@ -50,6 +51,7 @@ function formatTime(milliseconds: number) {
 
 <template>
   <section class="realtimeWorkspace">
+    <LiveCallList />
     <header class="realtimeControls">
       <div class="realtimeStatus">
         <Radio :size="18" />

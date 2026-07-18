@@ -34,6 +34,7 @@ class SensitiveHit(BaseModel):
     segment_id: str
     start_ms: int
     end_ms: int
+    dictionary_version: int | None = None
 
 
 class ComplianceHit(BaseModel):

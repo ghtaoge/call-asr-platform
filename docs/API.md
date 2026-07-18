@@ -145,6 +145,36 @@ GET /api/tts/health
 
 `status` 可取 `starting`、`ready`、`busy` 或 `unavailable`。Windows 开发机的普通话/英语系统语音兜底可用时，`fallback_available=true`；自定义声音复刻仍要求 CosyVoice 为 `ready` 或 `busy`。
 
+## 敏感词管理
+
+管理接口要求 JWT 的 `tenant_id`、`sub` 和角色，服务端不会信任请求中的租户覆盖头。角色 `sensitive:read` 可读取，`sensitive:write` 可增改删：
+
+```http
+GET /api/admin/sensitive-words?limit=50&cursor=...
+POST /api/admin/sensitive-words
+PATCH /api/admin/sensitive-words/{id}
+DELETE /api/admin/sensitive-words/{id}
+```
+
+词典按租户维护版本，响应带 `version` 和 `next_cursor`；命中结果的 `dictionary_version` 用于审计和前端提示。`low`、`medium`、`high`、`critical` 四个等级分别使用黄、橙、红、深红标记。
+
+## PBX/SIPREC
+
+网关通过受保护的内部接口通知通话生命周期：
+
+```http
+POST /api/internal/pbx/calls/start
+POST /api/internal/pbx/calls/{source_session_id}/status
+```
+
+请求必须携带网关令牌和租户身份。运维端使用 `calls:read` 读取：
+
+```http
+GET /api/pbx/calls
+```
+
+外部电话的销售/客户角色由租户分机规则决定；无法唯一判断时返回 `role_pending=true`，不会按 RTP 到达顺序猜测。
+
 获取可选默认音色：
 
 ```http

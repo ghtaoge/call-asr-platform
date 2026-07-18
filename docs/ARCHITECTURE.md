@@ -1,6 +1,6 @@
 # Architecture
 
-项目由 FastAPI 后端、Vue 3 工作台、独立 ASR 推理服务和隔离的 CosyVoice 工作进程组成。主后端负责业务编排和数据持久化；未配置 ASR RPC 时保留本地回退，正式 Compose 部署将模型推理移出 API 进程。
+项目由 FastAPI 后端、Vue 3 工作台、独立 ASR 推理服务、SIPREC/PBX 网关和隔离的 CosyVoice 工作进程组成。主后端负责业务编排和数据持久化；未配置 ASR RPC 时保留本地回退，正式 Compose 部署将模型推理移出 API 进程。
 
 ## 后端模块
 
@@ -17,6 +17,7 @@ app/summary      本地兜底摘要和 DeepSeek 结构化摘要
 app/jobs         异步任务、模块状态、重试和保留策略
 app/sessions     会话、语句及分析产物持久化
 app/tts          音色、TTS 队列、存储和工作进程客户端
+app/pbx          PBX 通话幂等生命周期和租户状态
 ```
 
 ## 转写优先流程
@@ -43,3 +44,5 @@ app/tts          音色、TTS 队列、存储和工作进程客户端
 ## 存储
 
 SQLite 保存任务、模块状态、会话、语句、音色和 TTS 任务元数据。文件保存在 `backend/data/jobs`、`backend/data/realtime` 和 `backend/data/tts`，默认保留 7 天。音频响应支持 HTTP Range。
+
+SIPREC 网关在 `siprec-gateway` 中终止信令和 RTP，按 PBX 网段白名单接收 PCMA/PCMU，经过抖动排序和 8kHz 到 16kHz 重采样后复用同一 ASR gRPC 帧协议。未被 ASR ACK 的帧写入 AES-GCM 加密 spool，网关重启后可恢复；角色只由租户分机规则映射，歧义状态保留为待确认。

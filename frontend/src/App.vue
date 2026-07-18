@@ -11,6 +11,7 @@ import QualityPanel from "./components/QualityPanel.vue";
 import RealtimePanel from "./components/RealtimePanel.vue";
 import SensitivePanel from "./components/SensitivePanel.vue";
 import SummaryPanel from "./components/SummaryPanel.vue";
+import SensitiveSettings from "./components/SensitiveSettings.vue";
 import Toolbar from "./components/Toolbar.vue";
 import TranscriptPanel from "./components/TranscriptPanel.vue";
 import TtsPanel from "./components/TtsPanel.vue";
@@ -18,7 +19,7 @@ import { useAnalysisJob } from "./composables/useAnalysisJob";
 import type { Speaker } from "./types";
 
 const audioUrl = ref("");
-const mode = ref<"analysis" | "realtime" | "tts">("analysis");
+const mode = ref<"analysis" | "realtime" | "tts" | "sensitive">("analysis");
 const ttsText = ref("");
 const activeTime = ref(0);
 const transcriptMode = ref<"sentence" | "merged">("sentence");
@@ -130,6 +131,7 @@ function openTts(text: string) {
       <p>请粘贴语音链接，或上传本地双声道录音。</p>
     </section>
     </template>
-    <TtsPanel v-else :initial-text="ttsText" />
+    <TtsPanel v-else-if="mode === 'tts'" :initial-text="ttsText" />
+    <SensitiveSettings v-else />
   </main>
 </template>

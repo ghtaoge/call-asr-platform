@@ -44,6 +44,10 @@ class Settings(BaseSettings):
     asr_realtime_target: str | None = None
     asr_batch_target: str | None = None
     asr_rpc_timeout_seconds: float = 10.0
+    auth_secret: str | None = None
+    auth_issuer: str | None = None
+    auth_audience: str | None = None
+    pbx_internal_token: str | None = None
 
     model_config = SettingsConfigDict(env_prefix="CALL_ASR_", env_file=".env", extra="ignore")
 

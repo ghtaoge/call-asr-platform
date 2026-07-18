@@ -118,6 +118,9 @@ python backend/scripts/bench_asr_service.py \
 | `CALL_ASR_ASR_REALTIME_TARGET` | 空 | 实时 ASR gRPC 地址；Compose 为 `asr-realtime:50051` |
 | `CALL_ASR_ASR_BATCH_TARGET` | 空 | 离线 ASR gRPC 地址；Compose 为 `asr-batch:50052` |
 | `CALL_ASR_ASR_RPC_TIMEOUT_SECONDS` | `10` | ASR 服务启动和健康检查超时 |
+| `PBX_ALLOWLIST` | 空 | SIPREC PBX 信令/RTP 来源 CIDR，生产必须显式配置 |
+| `PBX_INTERNAL_TOKEN` | 空 | 网关调用后端生命周期接口的令牌 |
+| `SPOOL_MASTER_KEY` | 空 | SIPREC 加密 spool 的 32 字节主密钥 |
 | `CALL_ASR_TTS_RETENTION_DAYS` | `7` | 临时音色与合成音频保留天数 |
 | `CALL_ASR_TTS_MAX_REFERENCE_BYTES` | `20971520` | 参考音频上限 |
 | `VITE_API_BASE` | `http://127.0.0.1:8000` | 前端访问的后端地址 |
@@ -130,3 +133,4 @@ python backend/scripts/bench_asr_service.py \
 - 为 SQLite 和 `backend/data` 设置备份、容量监控和定期清理。
 - 根据 GPU 显存限制单机并发，并监控实时 ASR 延迟、任务失败率和 TTS 队列长度。
 - 使用 `GET /api/tts/health` 监控 `status`、`queue_depth` 和 `error_code`，对连续不可用状态告警。
+- SIPREC 网关只允许 `PBX_ALLOWLIST` 内的来源，使用独立 spool 目录和密钥管理；部署前确认 UDP 5061、20000-21999 仅在 VPN/防火墙内开放。

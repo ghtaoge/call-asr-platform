@@ -5,6 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import health, jobs, offline, realtime, tts, url
+from app.api import sensitive_admin, pbx_internal, pbx_calls
 from app.asr.model_registry import ModelRegistry
 from app.asr_rpc.client import AsrRpcClient, AsrRpcSyncClient
 from app.asr.sensevoice_provider import SenseVoiceProvider
@@ -22,6 +23,8 @@ from app.realtime.manager import RealtimeManager
 from app.realtime.speaker_clusterer import TwoSpeakerClusterer
 from app.realtime.streaming_asr import FunAsrStreamingProvider
 from app.sensitive.store import SensitiveStore
+from app.sensitive.repository import SensitiveWordRepository
+from app.pbx.repository import PbxCallRepository
 from app.sessions.pipeline import AnalysisPipeline
 from app.sessions.repository import SessionRepository
 from app.summary.deepseek import DeepSeekSummaryProvider
@@ -35,6 +38,7 @@ from app.tts.storage import TtsStorage
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = get_settings()
+    app.state.settings = settings
     jobs_repository = JobRepository(settings.database_path)
     sessions_repository = SessionRepository(settings.database_path)
     await jobs_repository.init()
@@ -51,6 +55,13 @@ async def lifespan(app: FastAPI):
 
     sensitive_store = SensitiveStore(settings.sensitive_words_path)
     sensitive_store.reload()
+    sensitive_repository = SensitiveWordRepository(settings.database_path)
+    await sensitive_repository.init()
+    app.state.sensitive_store = sensitive_store
+    app.state.sensitive_repository = sensitive_repository
+    pbx_calls_repository = PbxCallRepository(settings.database_path)
+    await pbx_calls_repository.init()
+    app.state.pbx_calls = pbx_calls_repository
     registry = ModelRegistry(device=settings.resolved_device)
     audio = AudioPreprocessor()
     asr_provider = SenseVoiceProvider(model_loader=registry.sensevoice)
@@ -164,6 +175,9 @@ def create_app() -> FastAPI:
     app.include_router(url.router)
     app.include_router(jobs.router)
     app.include_router(tts.router)
+    app.include_router(sensitive_admin.router)
+    app.include_router(pbx_internal.router)
+    app.include_router(pbx_calls.router)
     return app
 
 

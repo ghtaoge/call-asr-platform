@@ -7,11 +7,15 @@ import type {
   TtsPresetVoice,
   TtsVoiceResponse
 } from "../types";
+import type { PbxCall } from "../types";
 
 export const API_BASE = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:8000";
 
 async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${API_BASE}${url}`, init);
+  const headers = new Headers(init?.headers);
+  const token = localStorage.getItem("call-asr-auth-token");
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+  const response = await fetch(`${API_BASE}${url}`, { ...init, headers });
   if (!response.ok) {
     const payload = await response.json().catch(() => ({ detail: response.statusText }));
     throw new Error(payload.detail || `请求失败（${response.status}）`);
@@ -85,4 +89,45 @@ export function getTtsJob(jobId: string): Promise<TtsJobResponse> {
 
 export function ttsAudioUrl(jobId: string, download = false): string {
   return `${API_BASE}/api/tts/jobs/${jobId}/audio${download ? "?download=true" : ""}`;
+}
+
+export interface SensitiveWordRecord {
+  id: string;
+  word: string;
+  normalized_word: string;
+  level: "low" | "medium" | "high" | "critical";
+  category: string;
+  enabled: boolean;
+  version: number;
+  updated_at: string;
+}
+
+export interface SensitiveWordList {
+  items: SensitiveWordRecord[];
+  next_cursor?: string;
+  version: number;
+}
+
+export function listSensitiveWords(params: Record<string, string | number | boolean | undefined> = {}): Promise<SensitiveWordList> {
+  const query = new URLSearchParams(Object.entries(params).filter(([, value]) => value !== undefined).map(([key, value]) => [key, String(value)]));
+  return requestJson(`/api/admin/sensitive-words?${query}`);
+}
+
+export function createSensitiveWord(payload: { word: string; level: string; category: string; enabled: boolean }): Promise<SensitiveWordRecord> {
+  return requestJson("/api/admin/sensitive-words", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+}
+
+export function updateSensitiveWord(id: string, payload: Record<string, unknown>): Promise<SensitiveWordRecord> {
+  return requestJson(`/api/admin/sensitive-words/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+}
+
+export function deleteSensitiveWord(id: string): Promise<void> {
+  const headers = new Headers();
+  const token = localStorage.getItem("call-asr-auth-token");
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+  return fetch(`${API_BASE}/api/admin/sensitive-words/${id}`, { method: "DELETE", headers }).then((response) => { if (!response.ok) throw new Error("删除敏感词失败"); });
+}
+
+export function listPbxCalls(): Promise<{ items: PbxCall[]; next_cursor?: string }> {
+  return requestJson("/api/pbx/calls");
 }

@@ -31,6 +31,7 @@ export interface SensitiveHit {
   segment_id: string;
   start_ms: number;
   end_ms: number;
+  dictionary_version?: number;
 }
 
 export interface ComplianceHit {
@@ -145,4 +146,19 @@ export interface TtsJobResponse {
   status: TtsJobStatus;
   error_code?: string;
   error_message?: string;
+}
+
+export interface PbxCall {
+  id: string;
+  tenant_id: string;
+  source: "siprec";
+  source_session_id: string;
+  status: "connecting" | "active" | "finalizing" | "completed" | "failed";
+  started_at: string;
+  updated_at: string;
+  customer_number: string;
+  sales_number: string;
+  role_pending: boolean;
+  media_interrupted: boolean;
+  asr_degraded: boolean;
 }
